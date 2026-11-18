@@ -124,6 +124,11 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
             and int(existing.get("content_version", 1)) == 2
             and new_site.content_manager.verifyFile("content.json", existing, ignore_same=False)
         ):
+            new_site.settings["own"] = True
+            new_site.settings["serving"] = True
+            new_site.saveSettings()
+            if not new_site.publish(inner_path="content.json"):
+                raise MigrationWorkflowError("Ethereum site manifest could not be published")
             return new_site
         raise MigrationWorkflowError(
             "The Ethereum destination already contains a different or invalid site"
@@ -160,7 +165,10 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
     if not new_site.content_manager.verifyFile("content.json", imported, ignore_same=False):
         raise MigrationWorkflowError("The new Ethereum manifest failed local verification")
 
-    # The new identity is now a normal v2 site. Publish its root manifest.
+    # The new identity is now a normal v2 site. Mark it as locally owned.
+    new_site.settings["own"] = True
+    new_site.settings["serving"] = True
+    new_site.saveSettings()
     if not new_site.publish(inner_path="content.json"):
         raise MigrationWorkflowError("Ethereum site manifest could not be published")
     return new_site
