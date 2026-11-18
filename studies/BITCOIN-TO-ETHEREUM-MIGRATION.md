@@ -1,6 +1,6 @@
 # Bitcoin → Ethereum site migration study
 
-> **Status:** design research only. The migration protocol is not implemented.
+> **Status:** initial cryptographic primitives and a local checkpoint ledger are implemented in `src/Crypt/CryptMigration.py`; site lifecycle integration and globally fresh checkpoint discovery remain incomplete.
 >
 > **Scope:** preserve existing Bitcoin-addressed sites while allowing their owners to migrate to an Ethereum EOA identity without an unauthenticated takeover or silent rollback.
 
@@ -8,7 +8,7 @@
 
 The content v2 branch already contains initial BLAKE3-256 hashing, Ethereum EOA address parsing and EIP-712 manifest signatures. Those implemented areas are documented in docs/CRYPTOGRAPHY-CURRENT-STATE.md and docs/architecture/CONTENT-V2-IMPLEMENTATION-GUIDE.md.
 
-This study retains only the still-unimplemented Bitcoin-to-Ethereum ownership transfer and anti-rollback design. Ethereum post-quantum signatures and IPFS CIDv1/BLAKE3 content v3 are tracked separately in docs/ToDo.md.
+The implementation now provides dual-signature migration records, verification of the referenced final legacy manifest, and a hash-linked local checkpoint ledger. This study documents the protocol and the remaining integration/freshness boundary. Ethereum post-quantum signatures and IPFS CIDv1/BLAKE3 content v3 are tracked separately in docs/ToDo.md.
 
 ## Migration requirements
 
@@ -33,7 +33,7 @@ A migration payload should contain at least:
 - previous_migration_digest: zero digest for the first migration or the previous migration record digest
 - created_at: informational timestamp, not the anti-rollback authority
 
-The old Bitcoin key signs the canonical migration payload using the existing legacy Bitcoin message-signature format. The new Ethereum key signs acceptance using the EIP-712 domain and typed data. Both signatures must be independently verified and must bind the exact same payload digest.
+Implemented in `src/Crypt/CryptMigration.py`: the old Bitcoin key signs the RFC 8785 canonical migration payload using the existing recoverable Bitcoin message-signature format. The new Ethereum key signs acceptance using EIP-712 typed data that includes the BLAKE3-256 payload digest and the identity/sequence linkage. Verification recovers both signers and rejects either missing or invalid signature. The final legacy manifest commitment uses SHA-256 over the legacy `json.dumps(sort_keys=True)` protected manifest representation, and `verify_final_legacy_manifest()` verifies its original Bitcoin signature as well as the digest. `signers_sign` remains in the protected legacy body because the legacy signer-policy attestation was part of the signed body.
 
 Do not reuse the old content v2 EIP-712 signature as proof of Bitcoin ownership. Do not accept a migration containing only the new Ethereum signature.
 
@@ -41,7 +41,7 @@ Do not reuse the old content v2 EIP-712 signature as proof of Bitcoin ownership.
 
 A signed migration manifest cannot guarantee global freezing by itself. A malicious peer can still serve a client an older signed Bitcoin manifest if that client has never seen the migration.
 
-A robust policy must define how clients discover and compare terminal checkpoints. Candidate mechanisms include:
+The implemented `CheckpointStore` is a local, atomic, hash-linked ledger. It rejects appends without a pinned trust anchor, non-contiguous sequence numbers, replay, and a previous-digest mismatch. The first checkpoint must be pinned with `trust_checkpoint(record, expected_record_digest)` using a digest obtained out-of-band. This protects a client after it has pinned a checkpoint, but it does **not** prove that a fresh client was given the newest checkpoint. A robust network-wide policy must define how clients discover and compare terminal checkpoints. Candidate mechanisms include:
 
 - a verifiable append-only checkpoint log;
 - an on-chain registry or contract with explicit update/freeze semantics;
@@ -57,7 +57,7 @@ Existing legacy clients cannot enforce a protocol they do not implement. The mig
 - Verify the old-key migration authorization.
 - Verify the new-key EIP-712 acceptance.
 - Verify that the new identity and final legacy digest match the payload.
-- Persist the terminal checkpoint and reject subsequent updates to the old identity.
+- Persist the terminal checkpoint and reject subsequent updates to the old identity. The local ledger primitive exists; enforcement in `SiteManager`/`ContentManager` is still pending.
 - Keep the old site readable in historical/read-only mode.
 - Display the new Ethereum identity and a verifiable link between old and new identities.
 - Reject missing, mismatched, replayed, stale or superseded proofs.
