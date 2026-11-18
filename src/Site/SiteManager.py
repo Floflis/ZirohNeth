@@ -171,10 +171,36 @@ class SiteManager(object):
     def resolveDomainCached(self, domain):
         return self.resolveDomain(domain)
 
+    def resolveMigrationAddress(self, address):
+        """Resolve a legacy Bitcoin address from its locally stored signed root manifest."""
+        if not self.isAddress(address) or address.startswith("0x"):
+            return address
+        manifest_path = config.data_dir / address / "content.json"
+        if not manifest_path.is_file():
+            return address
+        try:
+            with manifest_path.open("r", encoding="utf-8") as stream:
+                manifest = json.load(stream)
+            record = manifest.get("migration")
+            if not isinstance(record, dict):
+                return address
+            from Crypt import CryptMigration
+            if record.get("old_identity") != address:
+                return address
+            if not CryptMigration.verify_migration(record):
+                return address
+            if not CryptMigration.verify_final_legacy_manifest(record, manifest):
+                return address
+            return self.normalizeAddress(record["new_identity"])
+        except Exception as err:
+            self.log.debug("Unable to resolve migration for %s: %s", address, err)
+            return address
+
     # Return: Site object or None if not found
     def get(self, address):
         if self.isAddress(address):
             address = self.normalizeAddress(address)
+            address = self.resolveMigrationAddress(address)
         if self.isDomainCached(address):
             address_resolved = self.resolveDomainCached(address)
             if address_resolved:
@@ -189,6 +215,8 @@ class SiteManager(object):
 
     def add(self, address, all_file=True, settings=None, **kwargs):
         from .Site import Site
+        if self.isAddress(address):
+            address = self.resolveMigrationAddress(self.normalizeAddress(address))
         self.sites_changed = int(time.time())
         # Try to find site with differect case
         for recover_address, recover_site in list(self.sites.items()):
@@ -213,6 +241,7 @@ class SiteManager(object):
     def need(self, address, *args, **kwargs):
         if self.isAddress(address):
             address = self.normalizeAddress(address)
+            address = self.resolveMigrationAddress(address)
         if self.isDomainCached(address):
             address_resolved = self.resolveDomainCached(address)
             if address_resolved:
