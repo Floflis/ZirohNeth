@@ -4,6 +4,9 @@ The cryptographic proof is protocol-native. Publishing and Ethereum-site
 registration are injected adapters because the project has not selected a
 global checkpoint registry or EVM network yet.
 """
+from pathlib import Path
+
+from Config import config
 from Crypt import CryptEthereum
 from Crypt import CryptMigration
 
@@ -94,6 +97,9 @@ def commit_migration(
 
     old_identity = record["old_identity"]
     new_identity = record["new_identity"]
+    expected_store = Path(config.data_dir) / "migration-checkpoints" / (old_identity + ".json")
+    if checkpoint_store.path.resolve() != expected_store.resolve():
+        raise MigrationWorkflowError("CheckpointStore path must match ContentManager enforcement path")
     if site.address != old_identity:
         raise MigrationWorkflowError("Migration source site does not match old_identity")
 
