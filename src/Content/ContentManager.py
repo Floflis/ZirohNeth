@@ -939,6 +939,19 @@ class ContentManager:
     # Checks if the content.json content is valid
     # Return: True or False
     def verifyContent(self, inner_path, content):
+        content_version = int(content.get("content_version", 1))
+        if content_version == 2:
+            if content.get("hash_algorithm") != "blake3-256":
+                raise VerifyError("Unsupported v2 content hash algorithm")
+            for file_info in content.get("files", {}).values():
+                if "blake3" not in file_info or "sha512" in file_info:
+                    raise VerifyError("Every required v2 file must use a BLAKE3-256 digest")
+            for file_info in content.get("files_optional", {}).values():
+                if "blake3" not in file_info and file_info.get("hash_algorithm") != "sha512-truncated-256":
+                    raise VerifyError("Unsupported optional-file hash in v2 manifest")
+        elif content_version != 1:
+            raise VerifyError("Unsupported content version: %s" % content_version)
+
         content_size = len(json.dumps(content, indent=1)) + sum([file["size"] for file in list(content["files"].values()) if file["size"] >= 0])  # Size of new content
         # Calculate old content size
         old_content = self.contents.get(inner_path)
