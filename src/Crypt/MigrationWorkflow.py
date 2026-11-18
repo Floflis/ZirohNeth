@@ -33,6 +33,10 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
         raise MigrationWorkflowError("Source and destination identities must differ")
 
     current = site.storage.loadJson("content.json")
+    if not isinstance(current, dict) or int(current.get("content_version", 1)) != 1:
+        raise MigrationWorkflowError("Only a valid legacy v1 root manifest can be migrated")
+    if current.get("migration_status") or current.get("migration_protocol"):
+        raise MigrationWorkflowError("This site already contains migration metadata")
     if current.get("includes") or current.get("user_contents"):
         raise MigrationWorkflowError(
             "Migration with included/user manifests is blocked until their signer lifecycle is supported"
