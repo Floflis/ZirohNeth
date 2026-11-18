@@ -6,6 +6,14 @@ from eth_account import Account
 from Crypt import CryptEthereum, CryptHash
 
 
+def test_legacy_sha512_truncation_remains_unchanged():
+    # The old sha512 field is SHA-512 truncated to its first 32 bytes.
+    assert CryptHash.sha512sum(io.BytesIO(b"")).lower() == (
+        "cf83e1357eefb8bdf1542850d66d8007"
+        "d620e4050b5715dc83f4a921d36ce9ce"
+    )
+
+
 def test_blake3_256_known_vectors():
     assert CryptHash.blake3sum(io.BytesIO(b"")).lower() == (
         "af1349b9f5f9a1a6a0404dea36dcc949"
