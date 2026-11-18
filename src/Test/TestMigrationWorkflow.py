@@ -2,6 +2,7 @@ import json
 
 from eth_account import Account
 
+from Config import config
 from Crypt import CryptBitcoin, CryptMigration
 from Crypt import MigrationWorkflow
 
@@ -59,7 +60,8 @@ def _final_manifest_and_record():
     return manifest, record
 
 
-def test_commit_requires_registry_readback_before_local_pin_or_registration(tmp_path):
+def test_commit_requires_registry_readback_before_local_pin_or_registration(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_dir", tmp_path)
     manifest, record = _final_manifest_and_record()
     site = _Site(record["old_identity"])
     published = {}
@@ -75,7 +77,7 @@ def test_commit_requires_registry_readback_before_local_pin_or_registration(tmp_
         registered.append(item)
         return "registered"
 
-    store = CryptMigration.CheckpointStore(tmp_path / "checkpoints.json")
+    store = CryptMigration.CheckpointStore(tmp_path / "migration-checkpoints" / (record["old_identity"] + ".json"))
     try:
         MigrationWorkflow.commit_migration(
             site, manifest, record, store, publish, lookup, register
@@ -90,7 +92,8 @@ def test_commit_requires_registry_readback_before_local_pin_or_registration(tmp_
     assert "content.json" in site.storage.files
 
 
-def test_commit_pins_checkpoint_then_registers_and_can_be_retried(tmp_path):
+def test_commit_pins_checkpoint_then_registers_and_can_be_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_dir", tmp_path)
     manifest, record = _final_manifest_and_record()
     site = _Site(record["old_identity"])
     published = {}
