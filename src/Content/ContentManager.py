@@ -954,6 +954,8 @@ class ContentManager:
             if migration_record:
                 if not CryptMigration.verify_final_legacy_manifest(migration_record, content):
                     raise VerifyError("Invalid Bitcoin-to-Ethereum migration proof in content.json")
+                self.site.settings["migration_role"] = "historical"
+                self.site.settings["migration_target"] = migration_record["new_identity"]
                 digest = CryptMigration.record_digest(migration_record)
                 if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
                     raise VerifyError("Bitcoin identity is terminal after its pinned Ethereum migration")
