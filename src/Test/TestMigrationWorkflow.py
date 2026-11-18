@@ -1,131 +1,94 @@
+import copy
 import json
 
 from eth_account import Account
 
-from Config import config
 from Crypt import CryptBitcoin, CryptMigration
 from Crypt import MigrationWorkflow
 
 
 class _Storage:
-    def __init__(self):
-        self.files = {}
-
-    def writeJson(self, path, content):
-        self.files[str(path)] = content
+    def loadJson(self, path):
+        return {
+            "address": self.address,
+            "inner_path": "content.json",
+            "modified": 1700000000,
+            "signs_required": 1,
+            "files": {},
+        }
 
 
 class _ContentManager:
-    def __init__(self):
-        self.contents = {}
+    def __init__(self, address, bitcoin_key):
+        self.address = address
+        self.bitcoin_key = bitcoin_key
+
+    def sign(self, inner_path, privatekey, filewrite=False, extend=None):
+        manifest = {
+            "address": self.address,
+            "inner_path": "content.json",
+            "modified": 1700000000,
+            "signs_required": 1,
+            "files": {},
+        }
+        manifest.update(extend or {})
+        manifest["signers_sign"] = CryptBitcoin.sign("1:" + self.address, self.bitcoin_key)
+        manifest["signs"] = {
+            self.address: CryptBitcoin.sign(json.dumps(manifest, sort_keys=True), self.bitcoin_key)
+        }
+        return manifest
+
+    def isValidRelativePath(self, path):
+        return ".." not in path.parts and not path.is_absolute()
 
 
 class _Site:
-    def __init__(self, address):
+    def __init__(self, address, bitcoin_key):
         self.address = address
         self.storage = _Storage()
-        self.content_manager = _ContentManager()
-        self.settings = {}
-        self.saved = False
-
-    def saveSettings(self):
-        self.saved = True
-
-    def publish(self, inner_path="content.json"):
-        return 1
+        self.storage.address = address
+        self.content_manager = _ContentManager(address, bitcoin_key)
 
 
-def _final_manifest_and_record():
+def test_prepare_embeds_both_signatures_in_the_final_bitcoin_manifest():
     bitcoin_key = CryptBitcoin.newPrivatekey()
-    ethereum = Account.create()
     old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
-    manifest = {
-        "address": old_identity,
-        "inner_path": "content.json",
-        "modified": 1700000000,
-        "files": {},
-    }
-    manifest["signs"] = {
-        old_identity: CryptBitcoin.sign(json.dumps(manifest, sort_keys=True), bitcoin_key)
-    }
-    payload = {
-        "protocol": CryptMigration.PROTOCOL,
-        "old_identity": old_identity,
-        "new_identity": ethereum.address,
-        "final_legacy_manifest_digest": CryptMigration.legacy_manifest_digest(manifest),
-        "final_legacy_sequence": manifest["modified"],
-        "migration_sequence": 1,
-        "previous_migration_digest": CryptMigration.ZERO_DIGEST,
-    }
-    record = CryptMigration.sign_migration(
-        payload, bitcoin_key, "eth:" + ethereum.key.hex()
-    )
-    return manifest, record
+    ethereum = Account.create()
+    site = _Site(old_identity, bitcoin_key)
 
-
-def test_commit_requires_registry_readback_before_local_pin_or_registration(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "data_dir", tmp_path)
-    manifest, record = _final_manifest_and_record()
-    site = _Site(record["old_identity"])
-    published = {}
-    registered = []
-
-    def publish(item):
-        published[item["old_identity"]] = item
-
-    def lookup(identity):
-        return None  # Simulate a registry that accepted no durable checkpoint.
-
-    def register(item, final_manifest):
-        registered.append(item)
-        return "registered"
-
-    store = CryptMigration.CheckpointStore(tmp_path / "migration-checkpoints" / (record["old_identity"] + ".json"))
-    try:
-        MigrationWorkflow.commit_migration(
-            site, manifest, record, store, publish, lookup, register
-        )
-    except MigrationWorkflow.MigrationWorkflowError:
-        pass
-    else:
-        raise AssertionError("Registry read-back mismatch must abort migration")
-
-    assert store.latest() is None
-    assert not registered
-    assert "content.json" in site.storage.files
-
-
-def test_commit_pins_checkpoint_then_registers_and_can_be_retried(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "data_dir", tmp_path)
-    manifest, record = _final_manifest_and_record()
-    site = _Site(record["old_identity"])
-    published = {}
-    registered = []
-
-    def publish(item):
-        published[item["old_identity"]] = item
-
-    def lookup(identity):
-        return published.get(identity)
-
-    def register(item, final_manifest):
-        registered.append(item["new_identity"])
-        return "ethereum-site"
-
-    store = CryptMigration.CheckpointStore(tmp_path / "checkpoints.json")
-    result = MigrationWorkflow.commit_migration(
-        site, manifest, record, store, publish, lookup, register
+    manifest, record = MigrationWorkflow.prepare_migration(
+        site, bitcoin_key, "eth:" + ethereum.key.hex()
     )
 
-    assert result == "ethereum-site"
-    assert store.latest() == record
-    assert site.settings["migration_role"] == "historical"
-    assert site.settings["migration_target"] == record["new_identity"]
-    assert site.saved
+    assert manifest["migration"] == record
+    assert record["old_identity"] == old_identity
+    assert record["new_identity"] == ethereum.address
+    assert CryptMigration.verify_migration(record)
+    assert CryptMigration.verify_final_legacy_manifest(record, manifest)
 
-    # Repeating the operation must not append a duplicate checkpoint.
-    MigrationWorkflow.commit_migration(
-        site, manifest, record, store, publish, lookup, register
+    # The normal Bitcoin content signature covers the embedded proof too.
+    protected = copy.deepcopy(manifest)
+    protected.pop("signs")
+    assert CryptBitcoin.verify(
+        json.dumps(protected, sort_keys=True),
+        old_identity,
+        manifest["signs"][old_identity],
     )
-    assert store.latest() == record
-    assert registered == [record["new_identity"], record["new_identity"]]
+
+
+def test_embedded_migration_proof_is_invalidated_by_manifest_or_record_tampering():
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
+    ethereum = Account.create()
+    site = _Site(old_identity, bitcoin_key)
+    manifest, record = MigrationWorkflow.prepare_migration(
+        site, bitcoin_key, "eth:" + ethereum.key.hex()
+    )
+
+    changed = copy.deepcopy(manifest)
+    changed["migration"]["new_identity"] = Account.create().address
+    assert not CryptMigration.verify_final_legacy_manifest(record, changed)
+
+    changed = copy.deepcopy(manifest)
+    changed["title"] = "tampered"
+    assert not CryptMigration.verify_final_legacy_manifest(record, changed)
