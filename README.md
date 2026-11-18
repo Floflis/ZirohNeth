@@ -1,4 +1,14 @@
-# zeronet-conservancy
+# 🌈 ZirohNeth
+
+ZirohNeth carries forward the decentralized vision of ZeroNet while reimagining it for the modern Web3 era. Its name brings together **ZeroNet**, **iroh**, **Net**, and **Ethereum (ETH)**, weaving their identities into a single concept. "Zero" represents the ambition of a network that does not depend on centralized servers, while **iroh** evokes modern peer-to-peer connectivity that can help bring this vision to life. "Net" represents the network itself, while **ETH** evokes Ethereum's blockchain ecosystem and its cryptographic foundations. The name also hides a playful phonetic continuation of "Zero": a colloquial, informal sound transformed into a new identity.
+
+More than a tribute or a simple ZeroNet 2.0, ZirohNeth is both: a continuation of the original decentralized-web vision and an attempt to evolve it using the technologies and possibilities of today's Web3. It brings together peer-to-peer communication, distributed infrastructure, and blockchain-based coordination to explore a network where participants can build, publish, discover, and interact without relying on a single central authority. **ZeroNet's vision, reimagined for the decentralized web of today.**
+
+> **Project status:** this repository currently contains the ZeroNet Conservancy codebase and its existing implementation. The vision above describes the direction and identity of ZirohNeth; it does not imply that every Web3 or decentralized-network component described here has already been implemented.
+
+---
+
+
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/zeronet-conservancy.svg)](https://repology.org/project/zeronet-conservancy/versions)
 
