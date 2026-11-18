@@ -7,6 +7,7 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 - [ ] Complete the content v2 implementation and run the full test suite.
 - [ ] Add golden compatibility tests proving that v1 manifests, legacy SHA-512-truncated-256 hashes and Bitcoin signatures remain unchanged.
 - [ ] Define and test the v2 hashfield/cache compatibility policy. The current compact hashfield stores only 16-bit prefixes and does not encode the digest algorithm.
+- [ ] Extend Ethereum EIP-712 signing beyond the root content.json manifest and define how included manifests/certificates are authorized.
 - [ ] Add adversarial tests for unknown versions, unknown algorithms, malformed manifests, duplicate JSON keys, replay and rollback.
 - [ ] Add a cross-implementation RFC 8785 + EIP-712 test corpus for Python and future Rust clients.
 
