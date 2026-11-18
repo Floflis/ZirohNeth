@@ -31,6 +31,9 @@ class _Site:
     def saveSettings(self):
         self.saved = True
 
+    def publish(self, inner_path="content.json"):
+        return 1
+
 
 def _final_manifest_and_record():
     bitcoin_key = CryptBitcoin.newPrivatekey()
