@@ -940,12 +940,23 @@ class ContentManager:
     # Checks if the content.json content is valid
     # Return: True or False
     def verifyContent(self, inner_path, content):
-        # Once this client has pinned a dual-signed migration checkpoint, the
-        # Bitcoin identity may serve only its exact final legacy manifest.
+        # The Bitcoin root manifest is the discovery record: it embeds both
+        # signatures and the Ethereum destination. Pin it locally on first
+        # valid observation, then reject any later rollback to another root.
         if Path(inner_path) == Path("content.json") and not self.site.address.startswith("0x"):
             checkpoint_path = Path(config.data_dir) / "migration-checkpoints" / (self.site.address + ".json")
-            checkpoint = CryptMigration.CheckpointStore(checkpoint_path).latest()
-            if checkpoint and not CryptMigration.verify_final_legacy_manifest(checkpoint, content):
+            checkpoint_store = CryptMigration.CheckpointStore(checkpoint_path)
+            checkpoint = checkpoint_store.latest()
+            migration_record = content.get("migration")
+            if migration_record:
+                if not CryptMigration.verify_final_legacy_manifest(migration_record, content):
+                    raise VerifyError("Invalid Bitcoin-to-Ethereum migration proof in content.json")
+                digest = CryptMigration.record_digest(migration_record)
+                if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
+                    raise VerifyError("Bitcoin identity is terminal after its pinned Ethereum migration")
+                if not checkpoint:
+                    checkpoint_store.trust_checkpoint(migration_record, digest)
+            elif checkpoint:
                 raise VerifyError("Bitcoin identity is terminal after its Ethereum migration checkpoint")
 
         content_version = int(content.get("content_version", 1))
