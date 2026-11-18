@@ -191,6 +191,14 @@ class SiteManager(object):
                 return address
             if not CryptMigration.verify_final_legacy_manifest(record, manifest):
                 return address
+            checkpoint_path = config.data_dir / "migration-checkpoints" / (address + ".json")
+            checkpoint_store = CryptMigration.CheckpointStore(checkpoint_path)
+            checkpoint = checkpoint_store.latest()
+            digest = CryptMigration.record_digest(record)
+            if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
+                return address
+            if not checkpoint:
+                checkpoint_store.trust_checkpoint(record, digest)
             return self.normalizeAddress(record["new_identity"])
         except Exception as err:
             self.log.debug("Unable to resolve migration for %s: %s", address, err)
