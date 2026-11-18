@@ -28,7 +28,9 @@ def test_blake3_256_known_vectors():
 def test_ethereum_eip55_normalization():
     account = Account.create()
     normalized = CryptEthereum.normalize_address(account.address.lower())
+    uppercase = CryptEthereum.normalize_address("0x" + account.address[2:].upper())
     assert normalized == account.address
+    assert uppercase == account.address
 
 
 def test_ethereum_rejects_invalid_mixed_case_checksum():
