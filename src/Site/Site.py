@@ -910,6 +910,8 @@ class Site(object):
                 continue  # Not connectable
             if not peer.connection:
                 continue  # No connection
+            if isinstance(self.address, str) and self.address.lower().startswith("0x") and peer.ip.endswith(".onion"):
+                continue  # Ethereum-addressed sites never use Tor peers
             if peer.ip.endswith(".onion") and not self.connection_server.tor_manager.enabled:
                 continue  # Onion not supported
             if peer.key in ignore:
