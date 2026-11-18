@@ -197,9 +197,13 @@ def commit_migration(
     if site.address != record["old_identity"]:
         raise MigrationWorkflowError("Migration source site does not match old_identity")
 
+    expected_checkpoint_path = Path(config.data_dir) / "migration-checkpoints" / (site.address + ".json")
     if checkpoint_store is None:
-        checkpoint_path = Path(config.data_dir) / "migration-checkpoints" / (site.address + ".json")
-        checkpoint_store = CryptMigration.CheckpointStore(checkpoint_path)
+        checkpoint_store = CryptMigration.CheckpointStore(expected_checkpoint_path)
+    elif checkpoint_store.path.resolve() != expected_checkpoint_path.resolve():
+        raise MigrationWorkflowError(
+            "CheckpointStore path must match ContentManager and SiteManager enforcement"
+        )
     if site_manager is None:
         from Site import SiteManager
         site_manager = SiteManager.site_manager
