@@ -107,6 +107,9 @@ def commit_migration(
     # be retried with the same proof; the old identity is not yet locally pinned.
     site.storage.writeJson("content.json", final_manifest)
     site.content_manager.contents["content.json"] = final_manifest
+    published_peers = site.publish(inner_path="content.json")
+    if not published_peers:
+        raise MigrationWorkflowError("Final Bitcoin manifest was not published to any peer")
 
     publish_checkpoint(record)
     published = lookup_checkpoint(old_identity)
