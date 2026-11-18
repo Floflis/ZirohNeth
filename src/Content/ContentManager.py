@@ -942,7 +942,7 @@ class ContentManager:
     def verifyContent(self, inner_path, content):
         # Once this client has pinned a dual-signed migration checkpoint, the
         # Bitcoin identity may serve only its exact final legacy manifest.
-        if inner_path == Path("content.json") and not self.site.address.startswith("0x"):
+        if Path(inner_path) == Path("content.json") and not self.site.address.startswith("0x"):
             checkpoint_path = Path(config.data_dir) / "migration-checkpoints" / (self.site.address + ".json")
             checkpoint = CryptMigration.CheckpointStore(checkpoint_path).latest()
             if checkpoint and not CryptMigration.verify_final_legacy_manifest(checkpoint, content):
