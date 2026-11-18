@@ -139,7 +139,7 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
     # Bitcoin identity, old signature, or migration envelope into content v2.
     template = copy.deepcopy(final_manifest)
     for field in (
-        "sign", "signs", "migration", "migration_status",
+        "sign", "signs", "signers", "migration", "migration_status",
         "migration_protocol", "migration_target", "content_version",
         "hash_algorithm", "identity_scheme", "signature_scheme",
         "sequence", "previous_update_digest", "signers_sign",
