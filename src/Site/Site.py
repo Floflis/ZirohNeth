@@ -594,6 +594,23 @@ class Site(object):
     # Update content.json on peers
     @util.Noparallel()
     def publish(self, limit="default", inner_path="content.json", diffs={}, cb_progress=None):
+        # Historical Bitcoin identities may only re-advertise their exact
+        # terminal root manifest. They cannot publish files or new submanifests.
+        if self.settings.get("migration_role") == "historical":
+            if inner_path != "content.json":
+                self.log.warning("Blocked publish from historical Bitcoin identity: %s", inner_path)
+                return 0
+            try:
+                from Crypt import CryptMigration
+                terminal_manifest = self.storage.loadJson("content.json")
+                record = terminal_manifest.get("migration")
+                if not record or not CryptMigration.verify_final_legacy_manifest(record, terminal_manifest):
+                    self.log.warning("Blocked publish: historical Bitcoin root manifest is not a valid terminal migration")
+                    return 0
+            except Exception as err:
+                self.log.warning("Blocked publish from historical Bitcoin identity: %s", err)
+                return 0
+
         published = []  # Successfully published (Peer)
         publishers = []  # Publisher threads
 
