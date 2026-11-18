@@ -16,7 +16,11 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 - [x] Implement dual-signed migration proof primitives: legacy Bitcoin authorization plus EIP-712 Ethereum acceptance over the same migration payload.
 - [x] Bind the proof to the final legacy manifest digest, old Bitcoin identity, new Ethereum identity, protocol version and terminal sequence; verify the legacy manifest signature and digest.
 - [x] Implement an atomic local checkpoint ledger with explicit trust-anchor pinning, hash linkage, contiguous sequence checks and replay rejection.
-- [x] Enforce the locally checkpointed final-manifest boundary in ContentManager verification.\n- [ ] Integrate migration lifecycle into SiteManager/UI: register the Ethereum site, retain the Bitcoin site as historical/read-only, and expose a safe migration workflow.
+- [x] Enforce the locally checkpointed final-manifest boundary in ContentManager verification.
+- [x] Add a two-phase migration orchestration API: prepare the terminal Bitcoin manifest and dual-signed proof, publish through an injected registry adapter, independently read it back, pin locally, and invoke Ethereum registration.
+- [ ] Implement a concrete globally verifiable checkpoint registry adapter after selecting the EVM network/chain and trust/finality policy.
+- [ ] Implement the built-in Ethereum site importer/registration callback, safe file transfer, and retry/recovery UX.
+- [ ] Integrate migration lifecycle into SiteManager/UI: register the Ethereum site, retain the Bitcoin site as historical/read-only, and expose a safe migration workflow.
 - [ ] Select and implement a network-wide checkpoint discovery backend (on-chain registry, transparency log or quorum) that can establish freshness for new clients; local storage alone cannot do this.
 - [ ] Complete and test historical/read-only SiteManager/UI lifecycle. The workflow marks the old Site settings as historical, and the local ContentManager guard rejects non-terminal root manifests after pinning. Never silently rewrite an old site address.
 - [ ] Run and expand migration tests for missing/mismatched signatures, final-manifest mismatch, replay, checkpoint forks, stale peers and checkpoint-source equivocation. Tests are added but not yet executed.
