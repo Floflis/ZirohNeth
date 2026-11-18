@@ -28,8 +28,8 @@ To avoid a circular digest, `final_legacy_manifest_digest` commits to the legacy
 
 - `src/Crypt/CryptMigration.py`: dual signatures, final-manifest verification and atomic local checkpoint ledger.
 - `src/Crypt/MigrationWorkflow.py`: prepares the embedded proof, publishes the terminal Bitcoin manifest, pins the checkpoint, copies authorized files to the Ethereum site and signs/publishes the new v2 root manifest.
-- `src/Content/ContentManager.py`: pins a valid embedded migration proof when first observed and rejects a later Bitcoin root manifest that conflicts with the pinned terminal proof.
-- `src/Site/SiteManager.py`: verifies the locally stored Bitcoin root manifest and resolves the legacy address to its Ethereum destination. The old site data is not renamed or deleted.
+- `src/Content/ContentManager.py`: pins a valid embedded migration proof when first observed, rejects a later Bitcoin root manifest that conflicts with the pinned terminal proof, and blocks new signatures under a historical identity.
+- `src/Site/SiteManager.py`: verifies the locally stored Bitcoin root manifest, restores historical mode when loading an already migrated site, and resolves the legacy address to its Ethereum destination. `Site.publish()` allows only re-advertising the exact terminal root manifest. The old site data is not renamed or deleted.
 
 The workflow refuses roots with `includes` or `user_contents` because their signer lifecycle has not been migrated. It also refuses to overwrite an unrelated existing Ethereum destination.
 
