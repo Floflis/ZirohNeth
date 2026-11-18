@@ -770,7 +770,10 @@ class ContentManager:
         if not remove_missing_optional:
             for file_inner_path, file_details in content.get("files_optional", {}).items():
                 if file_inner_path not in files_optional_node:
-                    files_optional_node[file_inner_path] = file_details
+                    preserved = dict(file_details)
+                    if use_ethereum and "blake3" not in preserved and "sha512" in preserved:
+                        preserved["hash_algorithm"] = "sha512-truncated-256"
+                    files_optional_node[file_inner_path] = preserved
 
         # Find changed files
         files_merged = files_node.copy()
@@ -1073,7 +1076,11 @@ class ContentManager:
                         '"modified": %s' % modified_fixed
                     )
 
-                if int(new_content.get("content_version", 1)) == 2:
+                content_version = int(new_content.get("content_version", 1))
+                if content_version not in (1, 2):
+                    raise VerifyError("Unsupported content version: %s" % content_version)
+
+                if content_version == 2:
                     if new_content.get("hash_algorithm") != "blake3-256":
                         raise VerifyError("Unsupported v2 content hash algorithm")
                     if new_content.get("identity_scheme") != CryptEthereum.IDENTITY_SCHEME:
@@ -1083,10 +1090,18 @@ class ContentManager:
                     valid_signers = self.getValidSigners(inner_path, new_content)
                     if len(valid_signers) != 1:
                         raise VerifyError("Ethereum v2 currently requires exactly one EOA signer")
-                    valid = any(
-                        address in signs and CryptEthereum.verify_manifest(new_content, signs[address], address)
-                        for address in valid_signers
-                    )
+                    valid = False
+                    for expected_signer in valid_signers:
+                        for signer, signature in signs.items():
+                            try:
+                                if CryptEthereum.normalize_address(signer) == CryptEthereum.normalize_address(expected_signer):
+                                    valid = CryptEthereum.verify_manifest(new_content, signature, expected_signer)
+                                    if valid:
+                                        break
+                            except ValueError:
+                                continue
+                        if valid:
+                            break
                     if not valid:
                         raise VerifyError("Invalid Ethereum EIP-712 signature")
                     if inner_path != "content.json" and not self.verifyCert(inner_path, new_content):
