@@ -90,6 +90,12 @@ def test_final_legacy_manifest_is_bound_and_verified():
         "previous_migration_digest": CryptMigration.ZERO_DIGEST,
     }
     record = CryptMigration.sign_migration(payload, bitcoin_key, "eth:" + ethereum.key.hex())
+    manifest["migration"] = record
+    protected = copy.deepcopy(manifest)
+    protected.pop("signs")
+    manifest["signs"] = {
+        old_identity: CryptBitcoin.sign(json.dumps(protected, sort_keys=True), bitcoin_key)
+    }
     assert CryptMigration.verify_migration(record)
     assert CryptMigration.verify_final_legacy_manifest(record, manifest)
     manifest["modified"] += 1
