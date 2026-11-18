@@ -17,12 +17,14 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 - [x] Bind the proof to the final legacy manifest digest, old Bitcoin identity, new Ethereum identity, protocol version and terminal sequence; verify the legacy manifest signature and digest.
 - [x] Implement an atomic local checkpoint ledger with explicit trust-anchor pinning, hash linkage, contiguous sequence checks and replay rejection.
 - [x] Enforce the locally checkpointed final-manifest boundary in ContentManager verification.
-- [x] Add a two-phase migration orchestration API: prepare the terminal Bitcoin manifest and dual-signed proof, publish through an injected registry adapter, independently read it back, pin locally, and invoke Ethereum registration.
-- [ ] Implement a concrete globally verifiable checkpoint registry adapter after selecting the EVM network/chain and trust/finality policy.
-- [ ] Implement the built-in Ethereum site importer/registration callback, safe file transfer, and retry/recovery UX.
-- [ ] Integrate migration lifecycle into SiteManager/UI: register the Ethereum site, retain the Bitcoin site as historical/read-only, and expose a safe migration workflow.
-- [ ] Select and implement a network-wide checkpoint discovery backend (on-chain registry, transparency log or quorum) that can establish freshness for new clients; local storage alone cannot do this.
-- [ ] Complete and test historical/read-only SiteManager/UI lifecycle. The workflow marks the old Site settings as historical, and the local ContentManager guard rejects non-terminal root manifests after pinning. Never silently rewrite an old site address.
+- [x] Embed the dual-signed migration proof in the terminal Bitcoin content.json so the old site itself advertises its Ethereum destination.
+- [x] Resolve a visited Bitcoin address to its Ethereum destination after verifying the embedded proof; preserve the old address and site directory as historical data.
+- [x] Pin the first verified migration proof locally and reject a conflicting/rolled-back Bitcoin root manifest.
+- [x] Add a migration workflow that copies authorized root-manifest files to a new Ethereum site, signs a v2/BLAKE3 root manifest and publishes it.
+- [ ] Add a user-facing CLI/UI to initiate migration, display verification state and recover safely from interrupted steps.
+- [ ] Complete and test historical/read-only SiteManager/UI lifecycle, including preventing edits and new publishes through the old Bitcoin identity.
+- [ ] Add stale-peer withholding, rollback, conflicting destination, malformed proof and file-copy adversarial tests. Tests are added but not yet executed.
+- [ ] Migrate included/user manifests and their signer lifecycle before lifting the current restriction.
 - [ ] Run and expand migration tests for missing/mismatched signatures, final-manifest mismatch, replay, checkpoint forks, stale peers and checkpoint-source equivocation. Tests are added but not yet executed.
 
 ## Ethereum extensions
