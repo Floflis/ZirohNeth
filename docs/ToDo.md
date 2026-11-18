@@ -13,11 +13,13 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 
 ## Bitcoin → Ethereum migration
 
-- [ ] Specify a migration proof that is authorized by the old Bitcoin key and accepted by the new Ethereum EOA.
-- [ ] Bind the proof to the final legacy manifest digest, old Bitcoin identity, new Ethereum identity, protocol version and terminal sequence.
-- [ ] Define verifiable checkpoints/discovery and anti-rollback behavior for fresh clients.
+- [x] Implement dual-signed migration proof primitives: legacy Bitcoin authorization plus EIP-712 Ethereum acceptance over the same migration payload.
+- [x] Bind the proof to the final legacy manifest digest, old Bitcoin identity, new Ethereum identity, protocol version and terminal sequence; verify the legacy manifest signature and digest.
+- [x] Implement an atomic local checkpoint ledger with explicit trust-anchor pinning, hash linkage, contiguous sequence checks and replay rejection.
+- [ ] Integrate checkpoint enforcement into SiteManager/ContentManager so migrated Bitcoin sites become historical/read-only.
+- [ ] Select and implement a network-wide checkpoint discovery backend (on-chain registry, transparency log or quorum) that can establish freshness for new clients; local storage alone cannot do this.
 - [ ] Preserve legacy Bitcoin sites as readable historical identities. Never silently rewrite an old site address.
-- [ ] Add migration fixtures and negative tests for missing, mismatched, replayed or superseded proofs.
+- [ ] Run and expand migration tests for missing/mismatched signatures, final-manifest mismatch, replay, checkpoint forks, stale peers and checkpoint-source equivocation.
 
 ## Ethereum extensions
 
