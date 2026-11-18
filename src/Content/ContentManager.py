@@ -14,6 +14,7 @@ from Debug import Debug
 from Crypt import CryptHash
 from Crypt import CryptBitcoin
 from Crypt import CryptEthereum
+from Crypt import CryptMigration
 from Config import config
 from util import helper
 from util import Diff
@@ -939,6 +940,14 @@ class ContentManager:
     # Checks if the content.json content is valid
     # Return: True or False
     def verifyContent(self, inner_path, content):
+        # Once this client has pinned a dual-signed migration checkpoint, the
+        # Bitcoin identity may serve only its exact final legacy manifest.
+        if inner_path == Path("content.json") and not self.site.address.startswith("0x"):
+            checkpoint_path = Path(config.data_dir) / "migration-checkpoints" / (self.site.address + ".json")
+            checkpoint = CryptMigration.CheckpointStore(checkpoint_path).latest()
+            if checkpoint and not CryptMigration.verify_final_legacy_manifest(checkpoint, content):
+                raise VerifyError("Bitcoin identity is terminal after its Ethereum migration checkpoint")
+
         content_version = int(content.get("content_version", 1))
         if content_version == 2:
             if content.get("hash_algorithm") != "blake3-256":
