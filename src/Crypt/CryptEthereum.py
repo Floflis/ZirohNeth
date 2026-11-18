@@ -72,7 +72,7 @@ def _typed_message(content):
     address = normalize_address(content["address"])
     previous = content.get("previous_update_digest", ZERO_DIGEST)
     if isinstance(previous, str):
-        previous = bytes.fromhex(previous.removeprefix("0x"))
+        previous = bytes.fromhex(previous[2:] if previous.startswith("0x") else previous)
     if len(previous) != 32:
         raise ValueError("previous_update_digest must be 32 bytes")
 
@@ -94,6 +94,9 @@ def sign_manifest(content, private_key):
     """Sign a v2 manifest using EIP-712 and return a 0x-prefixed signature."""
     key = private_key[4:] if private_key.startswith("eth:") else private_key
     key = key[2:] if key.startswith("0x") else key
+    signer = Account.from_key(bytes.fromhex(key)).address
+    if normalize_address(signer) != normalize_address(content["address"]):
+        raise ValueError("Ethereum private key does not match manifest address")
     typed_data = encode_typed_data(full_message=_typed_message(content))
     signed = Account.sign_message(typed_data, private_key=bytes.fromhex(key))
     return signed.signature.hex()
@@ -105,5 +108,5 @@ def verify_manifest(content, signature, expected_address):
         typed_data = encode_typed_data(full_message=_typed_message(content))
         recovered = Account.recover_message(typed_data, signature=signature)
         return normalize_address(recovered) == normalize_address(expected_address)
-    except (KeyError, TypeError, ValueError):
+    except Exception:
         return False
