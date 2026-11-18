@@ -34,3 +34,8 @@ The feature branch feat/content-v2-blake3-ethereum introduces the first implemen
 The code and tests are being assembled on a feature branch. Do not treat this feature as release-ready until the full test suite, legacy compatibility tests and cross-platform checks pass.
 
 See ToDo.md for remaining work.
+
+
+## Tor policy note
+
+Ethereum-addressed sites (0x identities) are excluded from per-site Tor hidden-service creation and onion-peer transport. This does not globally disable Tor or alter legacy Bitcoin/Base58 site behavior. The implementation is in TorManager, Site peer selection and ConnectionServer; automated regression tests remain pending.
