@@ -240,7 +240,7 @@ class CheckpointStore:
         if not verify_migration(record) or record_digest(record) != expected_record_digest:
             raise MigrationError("Checkpoint does not match the independently trusted digest")
         payload = _payload(record)
-        if payload["migration_sequence"] < 1 or payload["previous_migration_digest"] != ZERO_DIGEST:
+        if payload["migration_sequence"] != 1 or payload["previous_migration_digest"] != ZERO_DIGEST:
             raise MigrationError("Initial trusted checkpoint must start at sequence 1")
         with self._lock:
             records = self._read()
