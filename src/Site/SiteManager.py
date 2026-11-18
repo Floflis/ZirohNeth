@@ -139,7 +139,16 @@ class SiteManager(object):
 
     # Checks if its a valid address
     def isAddress(self, address):
-        return re.match("^[A-Za-z0-9]{26,35}$", address)
+        if not isinstance(address, str):
+            return False
+        if address.startswith("0x"):
+            try:
+                from Crypt import CryptEthereum
+                CryptEthereum.normalize_address(address)
+                return True
+            except ValueError:
+                return False
+        return bool(re.fullmatch(r"[A-Za-z0-9]{26,35}", address))
 
     def isDomain(self, address):
         return False
