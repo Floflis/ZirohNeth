@@ -75,6 +75,9 @@ def test_final_legacy_manifest_is_bound_and_verified():
         "modified": 1700000000,
         "signs_required": 1,
         "signers_sign": CryptBitcoin.sign("1:" + old_identity, bitcoin_key),
+        "migration_status": "historical",
+        "migration_protocol": CryptMigration.PROTOCOL,
+        "migration_target": ethereum.address,
         "files": {"index.html": {"sha512": "ab" * 32, "size": 10}},
     }
     serialized = json.dumps(manifest, sort_keys=True)
