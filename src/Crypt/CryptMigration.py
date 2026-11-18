@@ -89,7 +89,7 @@ def legacy_manifest_digest(manifest):
     RFC 8785 encoding used by the new migration payload.
     """
     protected = copy.deepcopy(manifest)
-    for field in ("sign", "signs"):
+    for field in ("sign", "signs", "migration"):
         protected.pop(field, None)
     serialized = json.dumps(protected, sort_keys=True)
     return "0x" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
@@ -100,6 +100,11 @@ def verify_final_legacy_manifest(record, manifest):
     try:
         payload = _payload(record)
         if manifest.get("address", payload["old_identity"]) != payload["old_identity"]:
+            return False
+        embedded_record = manifest.get("migration")
+        if not isinstance(embedded_record, dict):
+            return False
+        if record_digest(embedded_record) != record_digest(record):
             return False
         legacy_sequence = manifest.get("sequence", manifest.get("modified"))
         if isinstance(legacy_sequence, bool) or not isinstance(legacy_sequence, int):
