@@ -101,6 +101,11 @@ def verify_final_legacy_manifest(record, manifest):
         payload = _payload(record)
         if manifest.get("address", payload["old_identity"]) != payload["old_identity"]:
             return False
+        legacy_sequence = manifest.get("sequence", manifest.get("modified"))
+        if isinstance(legacy_sequence, bool) or not isinstance(legacy_sequence, int):
+            return False
+        if legacy_sequence != payload["final_legacy_sequence"]:
+            return False
         signs = manifest.get("signs", {})
         signature = signs.get(payload["old_identity"])
         if not signature:
