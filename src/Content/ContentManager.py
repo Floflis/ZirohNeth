@@ -1167,7 +1167,12 @@ class ContentManager:
                     if valid_signs < signs_required:
                         raise VerifyError("Valid signs: %s/%s" % (valid_signs, signs_required))
                     else:
-                        return self.verifyContent(inner_path, new_content)
+                        # verifyFile temporarily removes signatures before checking
+                        # them; the migration verifier needs the signed envelope
+                        # to validate the embedded final Bitcoin manifest.
+                        verified_content = dict(new_content)
+                        verified_content["signs"] = signs
+                        return self.verifyContent(inner_path, verified_content)
                 elif sign:
                     raise VerifyError("Invalid old-style sign")
                 else:
