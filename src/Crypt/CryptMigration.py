@@ -202,8 +202,24 @@ class CheckpointStore:
             return []
         with self.path.open("r", encoding="utf-8") as stream:
             data = json.load(stream)
-        if not isinstance(data, list):
+        if not isinstance(data, list) or not data:
             raise MigrationError("Checkpoint store is corrupt")
+        first = _payload(data[0])
+        if not verify_migration(data[0]) or first["migration_sequence"] != 1 or first["previous_migration_digest"] != ZERO_DIGEST:
+            raise MigrationError("Checkpoint trust anchor is invalid")
+        previous = data[0]
+        for record in data[1:]:
+            payload = _payload(record)
+            previous_payload = _payload(previous)
+            if not verify_migration(record):
+                raise MigrationError("Stored checkpoint signature is invalid")
+            if payload["migration_sequence"] != previous_payload["migration_sequence"] + 1:
+                raise MigrationError("Stored checkpoint sequence is broken")
+            if payload["previous_migration_digest"] != "0x" + record_digest(previous):
+                raise MigrationError("Stored checkpoint chain is broken")
+            if payload["old_identity"] != previous_payload["old_identity"]:
+                raise MigrationError("Stored checkpoint identity changed")
+            previous = record
         return data
 
     def _write(self, records):
