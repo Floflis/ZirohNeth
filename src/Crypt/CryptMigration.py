@@ -84,9 +84,9 @@ def migration_digest(record):
 def legacy_manifest_digest(manifest):
     """Digest the exact legacy Bitcoin-signed JSON representation.
 
-    Legacy content signatures use json.dumps(..., sort_keys=True) before the
-    signature fields are attached. Keep that serialization distinct from the
-    RFC 8785 encoding used by the new migration payload.
+    The body excludes signature fields and the embedded migration envelope
+    to avoid a circular digest. The final ordinary Bitcoin content signature
+    still covers the complete manifest, including the embedded envelope.
     """
     protected = copy.deepcopy(manifest)
     for field in ("sign", "signs", "migration"):
@@ -100,6 +100,16 @@ def verify_final_legacy_manifest(record, manifest):
     try:
         payload = _payload(record)
         if manifest.get("address", payload["old_identity"]) != payload["old_identity"]:
+            return False
+        if manifest.get("inner_path", "content.json") != "content.json":
+            return False
+        if int(manifest.get("content_version", 1)) != 1:
+            return False
+        if manifest.get("migration_protocol") != PROTOCOL:
+            return False
+        if manifest.get("migration_status") != "historical":
+            return False
+        if manifest.get("migration_target") != payload["new_identity"]:
             return False
         embedded_record = manifest.get("migration")
         if not isinstance(embedded_record, dict):
