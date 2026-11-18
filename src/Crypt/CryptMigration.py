@@ -111,7 +111,7 @@ def verify_final_legacy_manifest(record, manifest):
         if not signature:
             return False
         protected = copy.deepcopy(manifest)
-        for field in ("sign", "signs", "signers_sign"):
+        for field in ("sign", "signs"):
             protected.pop(field, None)
         serialized = json.dumps(protected, sort_keys=True)
         return (
