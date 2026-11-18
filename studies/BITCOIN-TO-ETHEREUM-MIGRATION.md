@@ -1,81 +1,53 @@
-# Bitcoin → Ethereum site migration study
+# Bitcoin → Ethereum site migration
 
-> **Status:** dual-signature primitives, final-manifest verification, a local checkpoint ledger, and a two-phase orchestration API are implemented. A concrete global registry adapter, Ethereum site importer/registration implementation, and UI lifecycle remain incomplete.
->
-> **Scope:** preserve existing Bitcoin-addressed sites while allowing their owners to migrate to an Ethereum EOA identity without an unauthenticated takeover or silent rollback.
+> **Status:** the migration proof is embedded in the terminal Bitcoin `content.json`; SiteManager can discover and resolve the Ethereum destination from that signed manifest. Local anti-rollback pinning and a first file-import workflow are implemented. Tests have been added but not executed.
 
-## Current implementation boundary
+## Protocol flow
 
-The content v2 branch already contains initial BLAKE3-256 hashing, Ethereum EOA address parsing and EIP-712 manifest signatures. Those implemented areas are documented in docs/CRYPTOGRAPHY-CURRENT-STATE.md and docs/architecture/CONTENT-V2-IMPLEMENTATION-GUIDE.md.
+1. A client visits the legacy Bitcoin address and obtains its root `content.json`.
+2. The final Bitcoin manifest contains a `migration` object with the old identity, new Ethereum identity, final legacy body digest/sequence, protocol identifier, migration sequence, previous-record digest, Bitcoin authorization signature and Ethereum EIP-712 acceptance signature.
+3. The ordinary Bitcoin root-manifest signature also covers the embedded migration object. This protects the complete on-site redirect record.
+4. The client verifies the outer Bitcoin signature, the Bitcoin migration authorization, the Ethereum acceptance signature, and the binding between the proof and final manifest.
+5. The client pins the verified proof locally. SiteManager resolves future visits to the old Bitcoin address to the new Ethereum address.
+6. The old Bitcoin site directory and address remain intact as historical material. The new Ethereum site receives the authorized files and a freshly generated v2/BLAKE3 root manifest signed by the Ethereum key.
 
-The implementation now provides dual-signature migration records, verification of the referenced final legacy manifest, a hash-linked local checkpoint ledger, and `src/Crypt/MigrationWorkflow.py` for preparing the terminal Bitcoin manifest and orchestrating publish → independent read-back → local pin → Ethereum-registration callback. The workflow refuses to proceed if the registry read-back differs from the signed record. The registration callback is intentionally injected and is not yet a built-in SiteManager importer. Ethereum post-quantum signatures and IPFS CIDv1/BLAKE3 content v3 are tracked separately in docs/ToDo.md.
+There is no separate public registry, contract, chain selection or peer-supplied redirect service in this design. The Bitcoin site's own signed root manifest is the discovery record.
 
-## Migration requirements
+## Signature and digest construction
 
-1. The old Bitcoin key must authorize the migration.
-2. The new Ethereum EOA must explicitly accept the migration.
-3. Both proofs must bind the exact same migration payload.
-4. The payload must identify the old Bitcoin site, new Ethereum site, final legacy manifest digest, final legacy sequence/version, protocol identifier and migration sequence.
-5. A migration must be terminal for the old identity in clients that recognize its checkpoint.
-6. The old site remains readable as historical content. Its identity record must not be silently overwritten.
-7. A fresh client must have a way to discover the newest trusted checkpoint. A manifest alone cannot prove that a peer is not withholding a newer migration record.
+The migration record uses protocol `zirohneth-bitcoin-to-ethereum-v1` and is signed by both keys:
 
-## Cross-signature proposal
+- The Bitcoin key signs the canonical migration payload, authorizing the transfer away from the old identity.
+- The Ethereum EOA signs EIP-712 acceptance of the same payload digest, old identity, new identity, migration sequence and previous-record digest.
+- The record is embedded in the final Bitcoin `content.json`.
+- The normal Bitcoin content signature is recalculated after embedding, so it covers the migration object too.
 
-A migration payload should contain at least:
+To avoid a circular digest, `final_legacy_manifest_digest` commits to the legacy manifest body excluding `sign`, `signs`, and the embedded `migration` envelope. The ordinary Bitcoin content signature covers the migration envelope and all other manifest fields. The proof verifier checks both the body digest and the complete outer signature.
 
-- protocol: zirohneth-bitcoin-to-ethereum-v1
-- old_identity: the exact legacy Bitcoin address
-- new_identity: the normalized EIP-55 Ethereum EOA address
-- final_legacy_manifest_digest: digest of the final v1 manifest using the exact legacy canonicalization and hash/signature rules
-- final_legacy_sequence: the final monotonic sequence, if the legacy format has one; otherwise a separately specified terminal timestamp/checkpoint
-- migration_sequence: monotonic migration number
-- previous_migration_digest: zero digest for the first migration or the previous migration record digest
-- created_at: informational timestamp, not the anti-rollback authority
+## Implementation
 
-Implemented in `src/Crypt/CryptMigration.py`: the old Bitcoin key signs the RFC 8785 canonical migration payload using the existing recoverable Bitcoin message-signature format. The new Ethereum key signs acceptance using EIP-712 typed data that includes the BLAKE3-256 payload digest and the identity/sequence linkage. Verification recovers both signers and rejects either missing or invalid signature. The final legacy manifest commitment uses SHA-256 over the legacy `json.dumps(sort_keys=True)` protected manifest representation, and `verify_final_legacy_manifest()` verifies its original Bitcoin signature as well as the digest. `signers_sign` remains in the protected legacy body because the legacy signer-policy attestation was part of the signed body.
+- `src/Crypt/CryptMigration.py`: dual signatures, final-manifest verification and atomic local checkpoint ledger.
+- `src/Crypt/MigrationWorkflow.py`: prepares the embedded proof, publishes the terminal Bitcoin manifest, pins the checkpoint, copies authorized files to the Ethereum site and signs/publishes the new v2 root manifest.
+- `src/Content/ContentManager.py`: pins a valid embedded migration proof when first observed and rejects a later Bitcoin root manifest that conflicts with the pinned terminal proof.
+- `src/Site/SiteManager.py`: verifies the locally stored Bitcoin root manifest and resolves the legacy address to its Ethereum destination. The old site data is not renamed or deleted.
 
-Do not reuse the old content v2 EIP-712 signature as proof of Bitcoin ownership. Do not accept a migration containing only the new Ethereum signature.
+The workflow refuses roots with `includes` or `user_contents` because their signer lifecycle has not been migrated. It also refuses to overwrite an unrelated existing Ethereum destination.
 
-## Terminal checkpoint and anti-rollback
+## Freshness and security boundary
 
-A signed migration manifest cannot guarantee global freezing by itself. A malicious peer can still serve a client an older signed Bitcoin manifest if that client has never seen the migration.
+A dual-signed manifest proves that the Bitcoin owner authorized the transfer and the Ethereum owner accepted it. It does not prove that a peer is showing a fresh copy.
 
-The implemented `CheckpointStore` is a local, atomic, hash-linked ledger. It rejects appends without a pinned trust anchor, non-contiguous sequence numbers, replay, and a previous-digest mismatch. The first checkpoint must be pinned with `trust_checkpoint(record, expected_record_digest)` using a digest obtained out-of-band. This protects a client after it has pinned a checkpoint, but it does **not** prove that a fresh client was given the newest checkpoint. A robust network-wide policy must define how clients discover and compare terminal checkpoints. Candidate mechanisms include:
+A client that has already observed and pinned the final manifest rejects rollback to a different Bitcoin root. A fresh client can still be shown an older, validly signed pre-migration manifest by a peer that withholds the final one. Without an independent freshness source, this cannot be solved cryptographically by the manifest alone. This protocol intentionally accepts that boundary rather than adding an unrelated public registry.
 
-- a verifiable append-only checkpoint log;
-- an on-chain registry or contract with explicit update/freeze semantics;
-- a quorum or independently sourced checkpoint set with a documented trust model.
+Legacy clients that do not implement this migration protocol will not follow the Ethereum destination. The guarantee applies to compatible clients.
 
-No concrete registry adapter is selected yet. The workflow requires `publish_checkpoint(record)` and `lookup_checkpoint(old_identity)` callbacks; this is an integration seam, not a network-wide registry implementation. The chosen mechanism must specify freshness, quorum, equivocation handling, chain reorganization policy if on-chain, and behavior when the checkpoint source is unavailable. A timeout or RPC failure must never be interpreted as proof that no migration exists.
+## Remaining work
 
-Existing legacy clients cannot enforce a protocol they do not implement. The migration guarantee therefore applies only to clients that support this migration protocol and its checkpoint policy.
+- Run all migration and content compatibility tests.
+- Add adversarial tests for stale-peer withholding, manifest rollback, malformed embedded records and conflicting destination sites.
+- Complete UI/CLI migration initiation and recovery behavior.
+- Audit file-copy semantics for all supported platforms and optional files.
+- Define how included/user manifests are migrated before lifting the current restriction.
+- Verify the historical site is read-only in every publishing/editing UI path.
 
-## Expected client behavior
-
-- Verify the legacy final manifest with the original Bitcoin verification path.
-- Verify the old-key migration authorization.
-- Verify the new-key EIP-712 acceptance.
-- Verify that the new identity and final legacy digest match the payload.
-- Persist the terminal checkpoint and reject subsequent updates to the old identity. The local ledger primitive and ContentManager terminal-manifest guard exist. SiteManager/UI historical-mode integration remains incomplete.
-- Keep the old site readable in historical/read-only mode.
-- Display the new Ethereum identity and a verifiable link between old and new identities.
-- Reject missing, mismatched, replayed, stale or superseded proofs.
-
-## Required adversarial tests
-
-- Old Bitcoin signature missing or invalid.
-- New Ethereum acceptance signature missing or invalid.
-- Old/new signatures bind different payloads.
-- Wrong old Bitcoin address or new Ethereum address.
-- Final manifest digest mismatch.
-- Replayed migration sequence or previous-digest mismatch.
-- Peer serves a pre-migration manifest after the client has stored the terminal checkpoint.
-- Fresh client is given an older checkpoint while a newer checkpoint exists.
-- Checkpoint source is unavailable, inconsistent or equivocating.
-- A malicious third party attempts to migrate a site without the old key.
-
-## Workflow API and safety boundaries\n\n`prepare_migration(site, bitcoin_private_key, ethereum_private_key)` builds a final Bitcoin root manifest with explicit historical/target metadata and returns it with a dual-signed record. It refuses sites with `includes` or `user_contents`, because their submanifest signer lifecycle is not migrated yet. `commit_migration(...)` persists the final root manifest, publishes it to at least one connected peer, publishes the record through an injected registry adapter, reads it back independently, pins the verified checkpoint locally, marks the old Site object as historical, and finally invokes an injected Ethereum-site registration callback. The callback must be idempotent: a retry after successful publication may invoke it again.\n\nThe orchestration API does not itself choose a chain, deploy a registry, copy site data, or implement Ethereum SiteManager registration. It is therefore not yet a turnkey migration command. The old site remains on disk and keeps its Bitcoin address.\n\n## Remaining work
-
-See docs/ToDo.md for implementation tasks. No global freeze, ownership transfer or rollback protection should be claimed until the checkpoint discovery policy is implemented and adversarial tests pass.
-\n\nThe current test additions cover signature binding, legacy signer-policy attestation, checkpoint sequencing, registry read-back ordering and retry behavior. They have not been executed in this environment.\n
+Do not claim global freshness against a malicious peer or compatibility with legacy clients.
