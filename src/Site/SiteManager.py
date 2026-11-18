@@ -55,6 +55,10 @@ class SiteManager(object):
                     try:
                         site = Site(address, settings=settings)
                         site.content_manager.contents.get("content.json")
+                        migration_target = self.resolveMigrationAddress(address)
+                        if migration_target != address:
+                            site.settings["migration_role"] = "historical"
+                            site.settings["migration_target"] = migration_target
                     except Exception as err:
                         self.log.debug("Error loading site %s: %s" % (address, err))
                         continue
