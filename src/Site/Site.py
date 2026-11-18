@@ -34,7 +34,13 @@ from . import SiteManager
 class Site(object):
 
     def __init__(self, address, allow_create=True, settings=None):
-        self.address = str(re.sub("[^A-Za-z0-9]", "", address))  # Make sure its correct address
+        # Ethereum addresses must retain their 0x prefix and EIP-55 checksum.
+        # Keep the historical sanitization only for legacy Base58 identities.
+        if isinstance(address, str) and address.startswith("0x"):
+            from Crypt import CryptEthereum
+            self.address = CryptEthereum.normalize_address(address)
+        else:
+            self.address = str(re.sub("[^A-Za-z0-9]", "", address))
         self.address_hash = hashlib.sha256(self.address.encode("ascii")).digest()
         # sha1 is used for clearnet trackers
         self.address_sha1 = hashlib.sha1(self.address.encode("ascii")).digest()
