@@ -47,7 +47,7 @@ The v2 manifest declares:
 
 The protected manifest is serialized with RFC 8785 JSON Canonicalization Scheme. Signature fields are excluded from the protected digest to avoid circular signing. EIP-712 signs the site address, protected-manifest digest, content version, sequence and previous-update digest under the ZirohNeth domain.
 
-The first implementation supports one Ethereum EOA signer. Ethereum multisig and ERC-1271 smart-wallet verification are not implemented.
+The first implementation supports signing only the root content.json manifest with one Ethereum EOA signer. Ethereum sub-manifest signing, multisig and ERC-1271 smart-wallet verification are not implemented.
 
 ## Bitcoin compatibility and migration boundary
 
