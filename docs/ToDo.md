@@ -18,8 +18,8 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 - [x] Implement an atomic local checkpoint ledger with explicit trust-anchor pinning, hash linkage, contiguous sequence checks and replay rejection.
 - [x] Enforce the locally checkpointed final-manifest boundary in ContentManager verification.\n- [ ] Integrate migration lifecycle into SiteManager/UI: register the Ethereum site, retain the Bitcoin site as historical/read-only, and expose a safe migration workflow.
 - [ ] Select and implement a network-wide checkpoint discovery backend (on-chain registry, transparency log or quorum) that can establish freshness for new clients; local storage alone cannot do this.
-- [ ] Preserve legacy Bitcoin sites as readable historical identities. Never silently rewrite an old site address.
-- [ ] Run and expand migration tests for missing/mismatched signatures, final-manifest mismatch, replay, checkpoint forks, stale peers and checkpoint-source equivocation.
+- [ ] Complete and test historical/read-only SiteManager/UI lifecycle. The workflow marks the old Site settings as historical, and the local ContentManager guard rejects non-terminal root manifests after pinning. Never silently rewrite an old site address.
+- [ ] Run and expand migration tests for missing/mismatched signatures, final-manifest mismatch, replay, checkpoint forks, stale peers and checkpoint-source equivocation. Tests are added but not yet executed.
 
 ## Ethereum extensions
 
