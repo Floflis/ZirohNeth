@@ -18,7 +18,7 @@ The feature branch feat/content-v2-blake3-ethereum introduces the first implemen
 - Ethereum addresses retain the 0x prefix and use EIP-55 checksums.
 - Ethereum private keys use the explicit eth: prefix. Bare 64-character hexadecimal private keys retain their historical Bitcoin interpretation.
 - ContentManager selects BLAKE3-256 and EIP-712 when explicitly signing with an eth: key, and dispatches file verification by the digest field present in the manifest.
-- Ethereum v2 currently targets one EOA signer. Multisig and ERC-1271 are not implemented.
+- Ethereum v2 signing is currently limited to the root content.json manifest and one EOA signer. Ethereum sub-manifest signing, multisig and ERC-1271 are not implemented.
 
 ## Security and compatibility boundaries
 
