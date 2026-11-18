@@ -34,6 +34,27 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 - [ ] Verify Kubo and library support for the selected BLAKE3 multihash code across supported versions.
 - [ ] Add CIDv1 interoperability vectors and migration tests from v2.
 
+## Tor policy for Ethereum sites
+
+- [ ] Add automated tests proving Ethereum-addressed sites never create hidden services, advertise onion endpoints, discover onion peers or connect to onion peers.
+- [ ] Audit tracker proxying and global Tor modes to document precisely which traffic remains Tor-routed independently of per-site hidden-service policy.
+- [ ] Verify legacy Bitcoin/Base58 sites retain their existing Tor behavior.
+
+## Social identity and Sybil resistance
+
+- [ ] Prototype an optional Human Passport integration without making a third-party score mandatory for reading, publishing or account ownership.
+- [ ] Define a decentralized fallback based on portable credentials, local trust relationships and user-controlled attestations.
+- [ ] Design privacy-preserving proof storage and selective disclosure; never publish raw Passport stamps or personal verification data in site content.
+- [ ] Define appeal, recovery and false-positive handling before any score can limit posting or interaction.
+- [ ] Evaluate API, on-chain and self-hosted verification paths, including provider outage and vendor lock-in behavior.
+
+## ZeroNet ecosystem parity
+
+- [ ] Audit ZeroHello and related ZeroNet/ZeroNet-Conservancy repositories against ZirohNeth; classify each feature as implemented, partially implemented, intentionally omitted or not yet reviewed.
+- [ ] Decide whether ZeroHello is to be ported, redesigned as a native ZirohNeth portal, or kept as an external companion project.
+- [ ] Review 0Me, 0dashboard, fid, znapi and the supporting Python networking/crypto repositories listed in docs/ECOSYSTEM-COMPATIBILITY.md.
+- [ ] Keep the ecosystem inventory current when upstream sibling repositories receive relevant changes.
+
 ## Release and maintenance
 
 - [ ] Run unit/integration tests on supported Python versions and operating systems.
