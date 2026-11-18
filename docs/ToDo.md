@@ -22,7 +22,8 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 - [x] Pin the first verified migration proof locally and reject a conflicting/rolled-back Bitcoin root manifest.
 - [x] Add a migration workflow that copies authorized root-manifest files to a new Ethereum site, signs a v2/BLAKE3 root manifest and publishes it.
 - [ ] Add a user-facing CLI/UI to initiate migration, display verification state and recover safely from interrupted steps.
-- [ ] Complete and test historical/read-only SiteManager/UI lifecycle, including preventing edits and new publishes through the old Bitcoin identity.
+- [x] Enforce backend historical mode: block new signatures under the old identity and allow only re-advertising its exact terminal root manifest.
+- [ ] Complete and test historical/read-only UI lifecycle, including clear redirect messaging and preventing edit controls from being offered for the old identity.
 - [ ] Add stale-peer withholding, rollback, conflicting destination, malformed proof and file-copy adversarial tests. Tests are added but not yet executed.
 - [ ] Migrate included/user manifests and their signer lifecycle before lifting the current restriction.
 - [ ] Run and expand migration tests for missing/mismatched signatures, final-manifest mismatch, replay, checkpoint forks, stale peers and checkpoint-source equivocation. Tests are added but not yet executed.
