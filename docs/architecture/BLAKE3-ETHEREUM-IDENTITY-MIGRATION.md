@@ -1,6 +1,6 @@
 # 🌈 ZirohNeth — BLAKE3/BLAKE2b, identidade Ethereum e migração de sites Bitcoin
 
-> **Status:** estudo técnico e proposta de arquitetura. Não é uma implementação concluída nem uma decisão final de algoritmo.
+> **Status:** estudo de arquitetura e referência histórica. A branch feat/content-v2-blake3-ethereum já contém uma implementação inicial de BLAKE3-256, identidade Ethereum EOA e assinatura EIP-712; migração Bitcoin→Ethereum, anti-rollback e validação completa ainda não estão implementados.
 >
 > **Data:** 17/11/2026
 >
@@ -25,13 +25,13 @@ Recomendação de engenharia:
 - Fazer a migração como um protocolo com prova cruzada: a chave Bitcoin antiga autoriza o novo endereço, e a chave Ethereum nova reconhece a identidade antiga e a versão final.
 - Não prometer congelamento global apenas com um campo JSON: clientes novos precisam de um checkpoint verificável e uma regra de anti-rollback. Clientes ZeroNet antigos não conhecem essa regra.
 
-**Ainda precisa ser decidido:** BLAKE3-256, BLAKE3-XOF-512, BLAKE2b-256 ou BLAKE2b-512 como hash primário. O estudo deixa a decisão aberta para benchmark e teste de interoperabilidade.
+**Decisão para content v2:** BLAKE3-256 (digest padrão de 32 bytes). BLAKE3-XOF-512 e BLAKE2b não fazem parte do formato v2 implementado. A escolha poderá ser revista somente em uma nova versão explícita do protocolo, nunca reinterpretando o campo legado sha512.
 
 ---
 
 # 🌈 2. Auditoria do código atual
 
-A análise abaixo foi feita sobre os arquivos disponíveis na branch `main` do repositório `FloflisPull/ZirohNeth`, em 17/11/2026.
+A auditoria original foi feita em 17/11/2026 sobre a branch main de Floflis/ZirohNeth. O código evoluiu desde então; para o estado atual, consulte CRYPTOGRAPHY-CURRENT-STATE.md e CONTENT-V2-IMPLEMENTATION-GUIDE.md.
 
 ## 🌈 2.1 Hash atual: não é um SHA-512 completo no manifest
 
