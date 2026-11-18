@@ -128,6 +128,10 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         raise MigrationWorkflowError(
             "The Ethereum destination already contains a different or invalid site"
         )
+    if any(new_site.storage.directory.iterdir()):
+        raise MigrationWorkflowError(
+            "The Ethereum destination directory is not empty and has no valid root manifest"
+        )
 
     _copy_manifest_files(site, new_site, final_manifest)
 
