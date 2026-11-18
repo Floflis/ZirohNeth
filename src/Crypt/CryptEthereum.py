@@ -36,7 +36,8 @@ def normalize_address(address):
     """Validate an Ethereum address and return its EIP-55 representation."""
     if not isinstance(address, str) or not address.startswith("0x") or not is_address(address):
         raise ValueError("Invalid Ethereum address")
-    if address[2:] != address[2:].lower() and not is_checksum_address(address):
+    body = address[2:]
+    if body != body.lower() and body != body.upper() and not is_checksum_address(address):
         raise ValueError("Invalid EIP-55 checksum")
     return to_checksum_address(address)
 
