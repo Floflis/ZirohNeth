@@ -62,3 +62,33 @@ def test_checkpoint_rejects_replay_and_accepts_next_link(tmp_path):
     )
     store.append(second)
     assert store.latest() == second
+
+
+def test_final_legacy_manifest_is_bound_and_verified():
+    import json
+
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    ethereum = Account.create()
+    old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
+    manifest = {
+        "address": old_identity,
+        "modified": 1700000000,
+        "files": {"index.html": {"sha512": "ab" * 32, "size": 10}},
+    }
+    serialized = json.dumps(manifest, sort_keys=True)
+    manifest["signs"] = {old_identity: CryptBitcoin.sign(serialized, bitcoin_key)}
+    digest = CryptMigration.legacy_manifest_digest(manifest)
+    payload = {
+        "protocol": CryptMigration.PROTOCOL,
+        "old_identity": old_identity,
+        "new_identity": ethereum.address,
+        "final_legacy_manifest_digest": digest,
+        "final_legacy_sequence": 7,
+        "migration_sequence": 1,
+        "previous_migration_digest": CryptMigration.ZERO_DIGEST,
+    }
+    record = CryptMigration.sign_migration(payload, bitcoin_key, "eth:" + ethereum.key.hex())
+    assert CryptMigration.verify_migration(record)
+    assert CryptMigration.verify_final_legacy_manifest(record, manifest)
+    manifest["modified"] += 1
+    assert not CryptMigration.verify_final_legacy_manifest(record, manifest)
