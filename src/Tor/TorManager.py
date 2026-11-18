@@ -272,6 +272,12 @@ class TorManager(object):
         return CryptRsa.privatekeyToPublickey(self.privatekeys[address])
 
     def getOnion(self, site_address):
+        # Ethereum-addressed sites never publish or consume Tor hidden services.
+        # This is a per-site policy: Tor may remain enabled for legacy sites
+        # and for the client's other network connections.
+        if isinstance(site_address, str) and site_address.lower().startswith("0x"):
+            return None
+
         if not self.enabled:
             return None
 
