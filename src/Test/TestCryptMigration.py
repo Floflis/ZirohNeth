@@ -83,7 +83,7 @@ def test_final_legacy_manifest_is_bound_and_verified():
         "old_identity": old_identity,
         "new_identity": ethereum.address,
         "final_legacy_manifest_digest": digest,
-        "final_legacy_sequence": 7,
+        "final_legacy_sequence": manifest["modified"],
         "migration_sequence": 1,
         "previous_migration_digest": CryptMigration.ZERO_DIGEST,
     }
