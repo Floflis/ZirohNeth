@@ -47,6 +47,7 @@ class SiteManager(object):
         sites_need = []
 
         for address, settings in data.items():
+            address = self.normalizeAddress(address)
             if address not in self.sites:
                 if (config.data_dir / address / 'content.json').is_file():
                     # Root content.json exists, try load site
@@ -150,6 +151,12 @@ class SiteManager(object):
                 return False
         return bool(re.fullmatch(r"[A-Za-z0-9]{26,35}", address))
 
+    def normalizeAddress(self, address):
+        if isinstance(address, str) and address.startswith("0x"):
+            from Crypt import CryptEthereum
+            return CryptEthereum.normalize_address(address)
+        return address
+
     def isDomain(self, address):
         return False
 
@@ -166,6 +173,8 @@ class SiteManager(object):
 
     # Return: Site object or None if not found
     def get(self, address):
+        if self.isAddress(address):
+            address = self.normalizeAddress(address)
         if self.isDomainCached(address):
             address_resolved = self.resolveDomainCached(address)
             if address_resolved:
@@ -188,6 +197,7 @@ class SiteManager(object):
 
         if not self.isAddress(address):
             return False  # Not address: %s % address
+        address = self.normalizeAddress(address)
         self.log.debug("Added new site: %s" % address)
         config.loadTrackersFile()
         site = Site(address, settings=settings)
@@ -201,6 +211,8 @@ class SiteManager(object):
 
     # Return or create site and start download site files
     def need(self, address, *args, **kwargs):
+        if self.isAddress(address):
+            address = self.normalizeAddress(address)
         if self.isDomainCached(address):
             address_resolved = self.resolveDomainCached(address)
             if address_resolved:
