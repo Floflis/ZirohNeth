@@ -13,6 +13,8 @@ import gevent
 from Debug import Debug
 from Crypt import CryptHash
 from Crypt import CryptBitcoin
+from Crypt import CryptEthereum
+from Crypt import CryptMigration
 from Config import config
 from util import helper
 from util import Diff
@@ -75,14 +77,20 @@ class ContentManager:
         self.contents.db.initSite(self.site)
 
     def getFileChanges(self, old_files, new_files):
+        def file_hash(info):
+            for algorithm in ("blake3", "sha512", "sha1"):
+                if algorithm in info:
+                    return algorithm, info[algorithm]
+            return None
+
         deleted = {key: val for key, val in old_files.items() if key not in new_files}
-        deleted_hashes = {val.get("sha512"): key for key, val in old_files.items() if key not in new_files}
+        deleted_hashes = {file_hash(val): key for key, val in old_files.items() if key not in new_files}
         added = {key: val for key, val in new_files.items() if key not in old_files}
         renamed = {}
         for relative_path, node in added.items():
-            hash = node.get("sha512")
-            if hash in deleted_hashes:
-                relative_path_old = deleted_hashes[hash]
+            digest = file_hash(node)
+            if digest in deleted_hashes:
+                relative_path_old = deleted_hashes[digest]
                 renamed[relative_path_old] = relative_path
                 del(deleted[relative_path_old])
         return list(deleted), renamed
@@ -122,7 +130,9 @@ class ContentManager:
             deleted = []
             # Check changed
             for relative_path, info in new_content.get("files", {}).items():
-                if "sha512" in info:
+                if "blake3" in info:
+                    hash_type = "blake3"
+                elif "sha512" in info:
                     hash_type = "sha512"
                 else:  # Backward compatibility
                     hash_type = "sha1"
@@ -138,13 +148,14 @@ class ContentManager:
             # Check changed optional files
             for relative_path, info in new_content.get("files_optional", {}).items():
                 file_inner_path = content_inner_dir + relative_path
-                new_hash = info["sha512"]
+                hash_type = "blake3" if "blake3" in info else "sha512"
+                new_hash = info[hash_type]
                 if old_content and old_content.get("files_optional", {}).get(relative_path):
                     # We have the file in the old content
-                    old_hash = old_content["files_optional"][relative_path].get("sha512")
+                    old_hash = old_content["files_optional"][relative_path].get(hash_type)
                     if old_hash != new_hash and self.site.isDownloadable(file_inner_path):
                         changed.append(file_inner_path)  # Download new file
-                    elif old_hash != new_hash and self.hashfield.hasHash(old_hash) and not self.site.settings.get("own"):
+                    elif old_hash and old_hash != new_hash and self.hashfield.hasHash(old_hash) and not self.site.settings.get("own"):
                         try:
                             old_hash_id = self.hashfield.getHashId(old_hash)
                             self.optionalRemoved(file_inner_path, old_hash_id, old_content["files_optional"][relative_path]["size"])
@@ -191,7 +202,8 @@ class ContentManager:
                             # Check if the deleted file is optional
                             if old_content.get("files_optional") and old_content["files_optional"].get(file_relative_path):
                                 self.optionalDelete(file_inner_path)
-                                old_hash = old_content["files_optional"][file_relative_path].get("sha512")
+                                old_info = old_content["files_optional"][file_relative_path]
+                                old_hash = old_info.get("blake3", old_info.get("sha512"))
                                 if self.hashfield.hasHash(old_hash):
                                     old_hash_id = self.hashfield.getHashId(old_hash)
                                     self.optionalRemoved(file_inner_path, old_hash_id, old_content["files_optional"][file_relative_path]["size"])
@@ -392,9 +404,10 @@ class ContentManager:
     def isDownloaded(self, inner_path, hash_id=None):
         if not hash_id:
             file_info = self.getFileInfo(inner_path)
-            if not file_info or "sha512" not in file_info:
+            if not file_info or not ("blake3" in file_info or "sha512" in file_info):
                 return False
-            hash_id = self.hashfield.getHashId(file_info["sha512"])
+            digest = file_info.get("blake3", file_info.get("sha512"))
+            hash_id = self.hashfield.getHashId(digest)
         return hash_id in self.hashfield
 
     # Is modified since signing
@@ -618,17 +631,25 @@ class ContentManager:
                     self.site.storage.delete(file_inner_path + "-old")
         return diffs
 
-    def hashFile(self, dir_inner_path, file_relative_path, optional=False):
+    def hashFile(self, dir_inner_path, file_relative_path, optional=False, hash_algorithm="sha512-truncated-256"):
         back = {}
         file_inner_path = dir_inner_path / file_relative_path
 
         file_path = self.site.storage.getPath(file_inner_path)
         file_size = os.path.getsize(file_path)
-        sha512sum = CryptHash.sha512sum(file_path)  # Calculate sha512 sum of file
-        if optional and not self.hashfield.hasHash(sha512sum):
-            self.optionalDownloaded(file_inner_path, self.hashfield.getHashId(sha512sum), file_size, own=True)
+        if hash_algorithm == "blake3-256":
+            digest = CryptHash.blake3sum(file_path)
+            hash_field = "blake3"
+        elif hash_algorithm == "sha512-truncated-256":
+            digest = CryptHash.sha512sum(file_path)
+            hash_field = "sha512"
+        else:
+            raise SignError("Unsupported content hash algorithm: %s" % hash_algorithm)
 
-        back[file_relative_path] = {"sha512": sha512sum, "size": os.path.getsize(file_path)}
+        if optional and not self.hashfield.hasHash(digest):
+            self.optionalDownloaded(file_inner_path, self.hashfield.getHashId(digest), file_size, own=True)
+
+        back[file_relative_path] = {hash_field: digest, "size": file_size}
         return back
 
     def isValidRelativePath(self, relative_path):
@@ -651,7 +672,7 @@ class ContentManager:
         return Path(re.sub("[\x00-\x1F\"*:<>?\\|]", "", str(inner_path)))
 
     # Hash files in directory
-    def hashFiles(self, dir_inner_path, ignore_pattern=None, optional_pattern=None):
+    def hashFiles(self, dir_inner_path, ignore_pattern=None, optional_pattern=None, hash_algorithm="sha512-truncated-256"):
         files_node = {}
         files_optional_node = {}
         db_inner_path = self.site.storage.getDbFile()
@@ -681,12 +702,12 @@ class ContentManager:
                 if optional:
                     self.log.info("- [OPTIONAL] %s" % file_relative_path)
                     files_optional_node.update(
-                        self.hashFile(dir_inner_path, file_relative_path, optional=True)
+                        self.hashFile(dir_inner_path, file_relative_path, optional=True, hash_algorithm=hash_algorithm)
                     )
                 else:
                     self.log.info("- %s" % file_relative_path)
                     files_node.update(
-                        self.hashFile(dir_inner_path, file_relative_path)
+                        self.hashFile(dir_inner_path, file_relative_path, hash_algorithm=hash_algorithm)
                     )
         return files_node, files_optional_node
 
@@ -694,6 +715,9 @@ class ContentManager:
         """Create and sign a content.json
 
         Return: The new content if filewrite = False"""
+
+        if self.site.settings.get("migration_role") == "historical":
+            raise SignError("Historical Bitcoin identities are read-only after migration")
 
         if not isinstance(inner_path, Path):
             inner_path = Path(inner_path)
@@ -732,26 +756,36 @@ class ContentManager:
                     content[key] = val
                     self.log.info("Extending content.json with: %s" % key)
 
+        use_ethereum = isinstance(privatekey, str) and privatekey.startswith("eth:")
+        if use_ethereum and inner_path != Path("content.json"):
+            raise SignError("Ethereum v2 signing is currently limited to the root content.json manifest")
+        hash_algorithm = "blake3-256" if use_ethereum else "sha512-truncated-256"
+
         directory = self.site.storage.getPath(inner_path).parent
         inner_directory = inner_path.parent
         self.log.info("Opening site data directory: %s..." % directory)
 
         changed_files = [inner_path]
         files_node, files_optional_node = self.hashFiles(
-            inner_directory, content.get("ignore"), content.get("optional")
+            inner_directory, content.get("ignore"), content.get("optional"),
+            hash_algorithm=hash_algorithm
         )
 
         if not remove_missing_optional:
             for file_inner_path, file_details in content.get("files_optional", {}).items():
                 if file_inner_path not in files_optional_node:
-                    files_optional_node[file_inner_path] = file_details
+                    preserved = dict(file_details)
+                    if use_ethereum and "blake3" not in preserved and "sha512" in preserved:
+                        preserved["hash_algorithm"] = "sha512-truncated-256"
+                    files_optional_node[file_inner_path] = preserved
 
         # Find changed files
         files_merged = files_node.copy()
         files_merged.update(files_optional_node)
         for file_relative_path, file_details in files_merged.items():
-            old_hash = content.get("files", {}).get(file_relative_path, {}).get("sha512")
-            new_hash = files_merged[file_relative_path]["sha512"]
+            hash_field = "blake3" if use_ethereum else "sha512"
+            old_hash = content.get("files", {}).get(file_relative_path, {}).get(hash_field)
+            new_hash = files_merged[file_relative_path][hash_field]
             if old_hash != new_hash:
                 changed_files.append(inner_directory / file_relative_path)
 
@@ -786,9 +820,25 @@ class ContentManager:
         new_content["address"] = self.site.address
         new_content["inner_path"] = str(inner_path)
 
+        # Ethereum is an explicit opt-in using the eth: private-key prefix.
+        # Bare 64-character hex strings retain their historical Bitcoin meaning.
+        if use_ethereum:
+            # Do not carry a legacy Bitcoin multisigner attestation into an EIP-712 manifest.
+            new_content.pop("signers_sign", None)
+            previous_digest = CryptEthereum.manifest_digest(content).hex() if content.get("modified") else "00" * 32
+            new_content["content_version"] = 2
+            new_content["hash_algorithm"] = "blake3-256"
+            new_content["identity_scheme"] = CryptEthereum.IDENTITY_SCHEME
+            new_content["signature_scheme"] = CryptEthereum.SIGNATURE_SCHEME
+            new_content["sequence"] = int(content.get("sequence", 0)) + 1
+            new_content["previous_update_digest"] = "0x" + previous_digest
+
         # Verify private key
         self.log.info("Verifying private key...")
-        privatekey_address = CryptBitcoin.privatekeyToAddress(privatekey)
+        if use_ethereum:
+            privatekey_address = CryptEthereum.normalize_address(CryptEthereum.private_key_to_address(privatekey))
+        else:
+            privatekey_address = CryptBitcoin.privatekeyToAddress(privatekey)
         valid_signers = self.getValidSigners(inner_path, new_content)
         if privatekey_address not in valid_signers:
             raise SignError(
@@ -798,11 +848,14 @@ class ContentManager:
         self.log.info("Correct %s in valid signers: %s" % (privatekey_address, valid_signers))
 
         if inner_path == Path('content.json') and privatekey_address == self.site.address:
-            # If signing using the root key, then sign the valid signers
-            signers_data = "%s:%s" % (new_content["signs_required"], ",".join(valid_signers))
-            new_content["signers_sign"] = CryptBitcoin.sign(str(signers_data), privatekey)
-            if not new_content["signers_sign"]:
-                self.log.info("Old style address, signers_sign is none")
+            # The first Ethereum implementation intentionally supports one EOA signer.
+            if use_ethereum and len(valid_signers) > 1:
+                raise SignError("Ethereum v2 currently supports a single EOA signer; multisig is not implemented")
+            if not use_ethereum:
+                signers_data = "%s:%s" % (new_content["signs_required"], ",".join(valid_signers))
+                new_content["signers_sign"] = CryptBitcoin.sign(str(signers_data), privatekey)
+                if not new_content["signers_sign"]:
+                    self.log.info("Old style address, signers_sign is none")
 
         self.log.info("Signing %s..." % inner_path)
 
@@ -811,10 +864,14 @@ class ContentManager:
         if "sign" in new_content:
             del(new_content["sign"])  # Delete old sign (backward compatibility)
 
-        sign_content = json.dumps(new_content, sort_keys=True)
-        sign = CryptBitcoin.sign(sign_content, privatekey)
+        if use_ethereum:
+            sign = CryptEthereum.sign_manifest(new_content, privatekey)
+        else:
+            sign_content = json.dumps(new_content, sort_keys=True)
+            sign = CryptBitcoin.sign(sign_content, privatekey)
+
         # new_content["signs"] = content.get("signs", {}) # TODO: Multisig
-        if sign:  # If signing is successful (not an old address)
+        if sign:
             new_content["signs"] = {}
             new_content["signs"][privatekey_address] = sign
 
@@ -886,6 +943,40 @@ class ContentManager:
     # Checks if the content.json content is valid
     # Return: True or False
     def verifyContent(self, inner_path, content):
+        # The Bitcoin root manifest is the discovery record: it embeds both
+        # signatures and the Ethereum destination. Pin it locally on first
+        # valid observation, then reject any later rollback to another root.
+        if Path(inner_path) == Path("content.json") and not self.site.address.startswith("0x"):
+            checkpoint_path = Path(config.data_dir) / "migration-checkpoints" / (self.site.address + ".json")
+            checkpoint_store = CryptMigration.CheckpointStore(checkpoint_path)
+            checkpoint = checkpoint_store.latest()
+            migration_record = content.get("migration")
+            if migration_record:
+                if not CryptMigration.verify_final_legacy_manifest(migration_record, content):
+                    raise VerifyError("Invalid Bitcoin-to-Ethereum migration proof in content.json")
+                self.site.settings["migration_role"] = "historical"
+                self.site.settings["migration_target"] = migration_record["new_identity"]
+                digest = CryptMigration.record_digest(migration_record)
+                if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
+                    raise VerifyError("Bitcoin identity is terminal after its pinned Ethereum migration")
+                if not checkpoint:
+                    checkpoint_store.trust_checkpoint(migration_record, digest)
+            elif checkpoint:
+                raise VerifyError("Bitcoin identity is terminal after its Ethereum migration checkpoint")
+
+        content_version = int(content.get("content_version", 1))
+        if content_version == 2:
+            if content.get("hash_algorithm") != "blake3-256":
+                raise VerifyError("Unsupported v2 content hash algorithm")
+            for file_info in content.get("files", {}).values():
+                if "blake3" not in file_info or "sha512" in file_info:
+                    raise VerifyError("Every required v2 file must use a BLAKE3-256 digest")
+            for file_info in content.get("files_optional", {}).values():
+                if "blake3" not in file_info and file_info.get("hash_algorithm") != "sha512-truncated-256":
+                    raise VerifyError("Unsupported optional-file hash in v2 manifest")
+        elif content_version != 1:
+            raise VerifyError("Unsupported content version: %s" % content_version)
+
         content_size = len(json.dumps(content, indent=1)) + sum([file["size"] for file in list(content["files"].values()) if file["size"] >= 0])  # Size of new content
         # Calculate old content size
         old_content = self.contents.get(inner_path)
@@ -1023,11 +1114,43 @@ class ContentManager:
                         '"modified": %s' % modified_fixed
                     )
 
-                if signs:  # New style signing
+                content_version = int(new_content.get("content_version", 1))
+                if content_version not in (1, 2):
+                    raise VerifyError("Unsupported content version: %s" % content_version)
+
+                if content_version == 2:
+                    if new_content.get("hash_algorithm") != "blake3-256":
+                        raise VerifyError("Unsupported v2 content hash algorithm")
+                    if new_content.get("identity_scheme") != CryptEthereum.IDENTITY_SCHEME:
+                        raise VerifyError("Unsupported v2 identity scheme")
+                    if new_content.get("signature_scheme") != CryptEthereum.SIGNATURE_SCHEME:
+                        raise VerifyError("Unsupported v2 signature scheme")
+                    valid_signers = self.getValidSigners(inner_path, new_content)
+                    if len(valid_signers) != 1:
+                        raise VerifyError("Ethereum v2 currently requires exactly one EOA signer")
+                    valid = False
+                    for expected_signer in valid_signers:
+                        for signer, signature in signs.items():
+                            try:
+                                if CryptEthereum.normalize_address(signer) == CryptEthereum.normalize_address(expected_signer):
+                                    valid = CryptEthereum.verify_manifest(new_content, signature, expected_signer)
+                                    if valid:
+                                        break
+                            except ValueError:
+                                continue
+                        if valid:
+                            break
+                    if not valid:
+                        raise VerifyError("Invalid Ethereum EIP-712 signature")
+                    if inner_path != "content.json" and not self.verifyCert(inner_path, new_content):
+                        raise VerifyError("Invalid cert!")
+                    return self.verifyContent(inner_path, new_content)
+
+                if signs:  # Legacy Bitcoin signing
                     valid_signers = self.getValidSigners(inner_path, new_content)
                     signs_required = self.getSignsRequired(inner_path, new_content)
 
-                    if inner_path == "content.json" and len(valid_signers) > 1:  # Check signers_sign on root content.json
+                    if inner_path == "content.json" and len(valid_signers) > 1:
                         signers_data = "%s:%s" % (signs_required, ",".join(valid_signers))
                         if not CryptBitcoin.verify(signers_data, self.site.address, new_content["signers_sign"]):
                             raise VerifyError("Invalid signers_sign!")
@@ -1044,7 +1167,12 @@ class ContentManager:
                     if valid_signs < signs_required:
                         raise VerifyError("Valid signs: %s/%s" % (valid_signs, signs_required))
                     else:
-                        return self.verifyContent(inner_path, new_content)
+                        # verifyFile temporarily removes signatures before checking
+                        # them; the migration verifier needs the signed envelope
+                        # to validate the embedded final Bitcoin manifest.
+                        verified_content = dict(new_content)
+                        verified_content["signs"] = signs
+                        return self.verifyContent(inner_path, verified_content)
                 elif sign:
                     raise VerifyError("Invalid old-style sign")
                 else:
@@ -1057,7 +1185,13 @@ class ContentManager:
         else:  # Check using sha512 hash
             file_info = self.getFileInfo(inner_path)
             if file_info:
-                if CryptHash.sha512sum(file) != file_info.get("sha512", ""):
+                if "blake3" in file_info:
+                    actual_hash = CryptHash.blake3sum(file)
+                    expected_hash = file_info.get("blake3", "")
+                else:
+                    actual_hash = CryptHash.sha512sum(file)
+                    expected_hash = file_info.get("sha512", "")
+                if actual_hash != expected_hash:
                     raise VerifyError("Invalid hash")
 
                 if file_info.get("size", 0) != file.tell():

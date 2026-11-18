@@ -57,3 +57,28 @@ class Sha512t:
 
 def sha512t(data=None):
     return Sha512t(data)
+
+
+def blake3sum(file, blocksize=65536, format="hexdigest"):
+    """Return a BLAKE3 digest using the standard 32-byte output.
+
+    The legacy sha512sum() function above intentionally remains unchanged:
+    its historical output is SHA-512 truncated to 256 bits.
+    """
+    import blake3
+
+    should_close = False
+    if isinstance(file, (str, Path)):
+        file = open(file, "rb")
+        should_close = True
+
+    try:
+        hasher = blake3.blake3()
+        for block in iter(lambda: file.read(blocksize), b""):
+            hasher.update(block)
+        if format == "hexdigest":
+            return hasher.hexdigest()
+        return hasher.digest()
+    finally:
+        if should_close:
+            file.close()

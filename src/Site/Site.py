@@ -34,7 +34,13 @@ from . import SiteManager
 class Site(object):
 
     def __init__(self, address, allow_create=True, settings=None):
-        self.address = str(re.sub("[^A-Za-z0-9]", "", address))  # Make sure its correct address
+        # Ethereum addresses must retain their 0x prefix and EIP-55 checksum.
+        # Keep the historical sanitization only for legacy Base58 identities.
+        if isinstance(address, str) and address.startswith("0x"):
+            from Crypt import CryptEthereum
+            self.address = CryptEthereum.normalize_address(address)
+        else:
+            self.address = str(re.sub("[^A-Za-z0-9]", "", address))
         self.address_hash = hashlib.sha256(self.address.encode("ascii")).digest()
         # sha1 is used for clearnet trackers
         self.address_sha1 = hashlib.sha1(self.address.encode("ascii")).digest()
@@ -588,6 +594,23 @@ class Site(object):
     # Update content.json on peers
     @util.Noparallel()
     def publish(self, limit="default", inner_path="content.json", diffs={}, cb_progress=None):
+        # Historical Bitcoin identities may only re-advertise their exact
+        # terminal root manifest. They cannot publish files or new submanifests.
+        if self.settings.get("migration_role") == "historical":
+            if inner_path != "content.json":
+                self.log.warning("Blocked publish from historical Bitcoin identity: %s", inner_path)
+                return 0
+            try:
+                from Crypt import CryptMigration
+                terminal_manifest = self.storage.loadJson("content.json")
+                record = terminal_manifest.get("migration")
+                if not record or not CryptMigration.verify_final_legacy_manifest(record, terminal_manifest):
+                    self.log.warning("Blocked publish: historical Bitcoin root manifest is not a valid terminal migration")
+                    return 0
+            except Exception as err:
+                self.log.warning("Blocked publish from historical Bitcoin identity: %s", err)
+                return 0
+
         published = []  # Successfully published (Peer)
         publishers = []  # Publisher threads
 
@@ -904,6 +927,8 @@ class Site(object):
                 continue  # Not connectable
             if not peer.connection:
                 continue  # No connection
+            if isinstance(self.address, str) and self.address.lower().startswith("0x") and peer.ip.endswith(".onion"):
+                continue  # Ethereum-addressed sites never use Tor peers
             if peer.ip.endswith(".onion") and not self.connection_server.tor_manager.enabled:
                 continue  # Onion not supported
             if peer.key in ignore:

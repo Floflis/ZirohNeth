@@ -164,6 +164,8 @@ class ConnectionServer(object):
 
     def getConnection(self, ip=None, port=None, peer_id=None, create=True, site=None, is_tracker_connection=False):
         ip_type = helper.getIpType(ip)
+        if site and isinstance(site.address, str) and site.address.lower().startswith("0x") and ip_type == "onion":
+            raise Exception("Ethereum-addressed sites do not use Tor peers")
         has_per_site_onion = (ip_type == 'onion' or self.port_opened.get(ip_type, None) == False) and self.tor_manager.start_onions and site
         if has_per_site_onion:  # Site-unique connection for Tor
             if ip_type == 'onion':

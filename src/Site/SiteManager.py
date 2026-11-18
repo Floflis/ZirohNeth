@@ -47,6 +47,7 @@ class SiteManager(object):
         sites_need = []
 
         for address, settings in data.items():
+            address = self.normalizeAddress(address)
             if address not in self.sites:
                 if (config.data_dir / address / 'content.json').is_file():
                     # Root content.json exists, try load site
@@ -54,6 +55,10 @@ class SiteManager(object):
                     try:
                         site = Site(address, settings=settings)
                         site.content_manager.contents.get("content.json")
+                        migration_target = self.resolveMigrationAddress(address)
+                        if migration_target != address:
+                            site.settings["migration_role"] = "historical"
+                            site.settings["migration_target"] = migration_target
                     except Exception as err:
                         self.log.debug("Error loading site %s: %s" % (address, err))
                         continue
@@ -139,7 +144,22 @@ class SiteManager(object):
 
     # Checks if its a valid address
     def isAddress(self, address):
-        return re.match("^[A-Za-z0-9]{26,35}$", address)
+        if not isinstance(address, str):
+            return False
+        if address.startswith("0x"):
+            try:
+                from Crypt import CryptEthereum
+                CryptEthereum.normalize_address(address)
+                return True
+            except ValueError:
+                return False
+        return bool(re.fullmatch(r"[A-Za-z0-9]{26,35}", address))
+
+    def normalizeAddress(self, address):
+        if isinstance(address, str) and address.startswith("0x"):
+            from Crypt import CryptEthereum
+            return CryptEthereum.normalize_address(address)
+        return address
 
     def isDomain(self, address):
         return False
@@ -155,8 +175,44 @@ class SiteManager(object):
     def resolveDomainCached(self, domain):
         return self.resolveDomain(domain)
 
+    def resolveMigrationAddress(self, address):
+        """Resolve a legacy Bitcoin address from its locally stored signed root manifest."""
+        if not self.isAddress(address) or address.startswith("0x"):
+            return address
+        manifest_path = config.data_dir / address / "content.json"
+        if not manifest_path.is_file():
+            return address
+        try:
+            with manifest_path.open("r", encoding="utf-8") as stream:
+                manifest = json.load(stream)
+            record = manifest.get("migration")
+            if not isinstance(record, dict):
+                return address
+            from Crypt import CryptMigration
+            if record.get("old_identity") != address:
+                return address
+            if not CryptMigration.verify_migration(record):
+                return address
+            if not CryptMigration.verify_final_legacy_manifest(record, manifest):
+                return address
+            checkpoint_path = config.data_dir / "migration-checkpoints" / (address + ".json")
+            checkpoint_store = CryptMigration.CheckpointStore(checkpoint_path)
+            checkpoint = checkpoint_store.latest()
+            digest = CryptMigration.record_digest(record)
+            if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
+                return address
+            if not checkpoint:
+                checkpoint_store.trust_checkpoint(record, digest)
+            return self.normalizeAddress(record["new_identity"])
+        except Exception as err:
+            self.log.debug("Unable to resolve migration for %s: %s", address, err)
+            return address
+
     # Return: Site object or None if not found
     def get(self, address):
+        if self.isAddress(address):
+            address = self.normalizeAddress(address)
+            address = self.resolveMigrationAddress(address)
         if self.isDomainCached(address):
             address_resolved = self.resolveDomainCached(address)
             if address_resolved:
@@ -171,6 +227,8 @@ class SiteManager(object):
 
     def add(self, address, all_file=True, settings=None, **kwargs):
         from .Site import Site
+        if self.isAddress(address):
+            address = self.resolveMigrationAddress(self.normalizeAddress(address))
         self.sites_changed = int(time.time())
         # Try to find site with differect case
         for recover_address, recover_site in list(self.sites.items()):
@@ -179,6 +237,7 @@ class SiteManager(object):
 
         if not self.isAddress(address):
             return False  # Not address: %s % address
+        address = self.normalizeAddress(address)
         self.log.debug("Added new site: %s" % address)
         config.loadTrackersFile()
         site = Site(address, settings=settings)
@@ -192,6 +251,9 @@ class SiteManager(object):
 
     # Return or create site and start download site files
     def need(self, address, *args, **kwargs):
+        if self.isAddress(address):
+            address = self.normalizeAddress(address)
+            address = self.resolveMigrationAddress(address)
         if self.isDomainCached(address):
             address_resolved = self.resolveDomainCached(address)
             if address_resolved:
