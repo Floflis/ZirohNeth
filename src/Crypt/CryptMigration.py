@@ -5,6 +5,7 @@ new Ethereum EOA. CheckpointStore persists a locally observed chain of
 verified migration records; it is not, by itself, a global freshness oracle.
 """
 import copy
+import hashlib
 import json
 import os
 import tempfile
@@ -77,6 +78,43 @@ def _payload(record):
 def migration_digest(record):
     """BLAKE3-256 digest of the RFC 8785 canonical migration payload."""
     return blake3.blake3(rfc8785.dumps(_payload(record))).hexdigest()
+
+
+
+def legacy_manifest_digest(manifest):
+    """Digest the exact legacy Bitcoin-signed JSON representation.
+
+    Legacy content signatures use json.dumps(..., sort_keys=True) before the
+    signature fields are attached. Keep that serialization distinct from the
+    RFC 8785 encoding used by the new migration payload.
+    """
+    protected = copy.deepcopy(manifest)
+    for field in ("sign", "signs", "signers_sign"):
+        protected.pop(field, None)
+    serialized = json.dumps(protected, sort_keys=True)
+    return "0x" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def verify_final_legacy_manifest(record, manifest):
+    """Confirm the referenced final manifest is signed by the old Bitcoin key."""
+    try:
+        payload = _payload(record)
+        if manifest.get("address", payload["old_identity"]) != payload["old_identity"]:
+            return False
+        signs = manifest.get("signs", {})
+        signature = signs.get(payload["old_identity"])
+        if not signature:
+            return False
+        protected = copy.deepcopy(manifest)
+        for field in ("sign", "signs", "signers_sign"):
+            protected.pop(field, None)
+        serialized = json.dumps(protected, sort_keys=True)
+        return (
+            legacy_manifest_digest(manifest) == payload["final_legacy_manifest_digest"]
+            and CryptBitcoin.verify(serialized, payload["old_identity"], signature)
+        )
+    except Exception:
+        return False
 
 
 def _ethereum_message(payload, digest):
