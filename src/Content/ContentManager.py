@@ -154,7 +154,7 @@ class ContentManager:
                     old_hash = old_content["files_optional"][relative_path].get(hash_type)
                     if old_hash != new_hash and self.site.isDownloadable(file_inner_path):
                         changed.append(file_inner_path)  # Download new file
-                    elif old_hash != new_hash and self.hashfield.hasHash(old_hash) and not self.site.settings.get("own"):
+                    elif old_hash and old_hash != new_hash and self.hashfield.hasHash(old_hash) and not self.site.settings.get("own"):
                         try:
                             old_hash_id = self.hashfield.getHashId(old_hash)
                             self.optionalRemoved(file_inner_path, old_hash_id, old_content["files_optional"][relative_path]["size"])
@@ -753,6 +753,8 @@ class ContentManager:
                     self.log.info("Extending content.json with: %s" % key)
 
         use_ethereum = isinstance(privatekey, str) and privatekey.startswith("eth:")
+        if use_ethereum and inner_path != Path("content.json"):
+            raise SignError("Ethereum v2 signing is currently limited to the root content.json manifest")
         hash_algorithm = "blake3-256" if use_ethereum else "sha512-truncated-256"
 
         directory = self.site.storage.getPath(inner_path).parent
@@ -814,6 +816,8 @@ class ContentManager:
         # Ethereum is an explicit opt-in using the eth: private-key prefix.
         # Bare 64-character hex strings retain their historical Bitcoin meaning.
         if use_ethereum:
+            # Do not carry a legacy Bitcoin multisigner attestation into an EIP-712 manifest.
+            new_content.pop("signers_sign", None)
             previous_digest = CryptEthereum.manifest_digest(content).hex() if content.get("modified") else "00" * 32
             new_content["content_version"] = 2
             new_content["hash_algorithm"] = "blake3-256"
