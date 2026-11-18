@@ -1,6 +1,6 @@
 # Bitcoin → Ethereum site migration study
 
-> **Status:** initial cryptographic primitives and a local checkpoint ledger are implemented in `src/Crypt/CryptMigration.py`; site lifecycle integration and globally fresh checkpoint discovery remain incomplete.
+> **Status:** dual-signature primitives, final-manifest verification, a local checkpoint ledger, and a two-phase orchestration API are implemented. A concrete global registry adapter, Ethereum site importer/registration implementation, and UI lifecycle remain incomplete.
 >
 > **Scope:** preserve existing Bitcoin-addressed sites while allowing their owners to migrate to an Ethereum EOA identity without an unauthenticated takeover or silent rollback.
 
@@ -8,7 +8,7 @@
 
 The content v2 branch already contains initial BLAKE3-256 hashing, Ethereum EOA address parsing and EIP-712 manifest signatures. Those implemented areas are documented in docs/CRYPTOGRAPHY-CURRENT-STATE.md and docs/architecture/CONTENT-V2-IMPLEMENTATION-GUIDE.md.
 
-The implementation now provides dual-signature migration records, verification of the referenced final legacy manifest, and a hash-linked local checkpoint ledger. This study documents the protocol and the remaining integration/freshness boundary. Ethereum post-quantum signatures and IPFS CIDv1/BLAKE3 content v3 are tracked separately in docs/ToDo.md.
+The implementation now provides dual-signature migration records, verification of the referenced final legacy manifest, a hash-linked local checkpoint ledger, and `src/Crypt/MigrationWorkflow.py` for preparing the terminal Bitcoin manifest and orchestrating publish → independent read-back → local pin → Ethereum-registration callback. The workflow refuses to proceed if the registry read-back differs from the signed record. The registration callback is intentionally injected and is not yet a built-in SiteManager importer. Ethereum post-quantum signatures and IPFS CIDv1/BLAKE3 content v3 are tracked separately in docs/ToDo.md.
 
 ## Migration requirements
 
@@ -47,7 +47,7 @@ The implemented `CheckpointStore` is a local, atomic, hash-linked ledger. It rej
 - an on-chain registry or contract with explicit update/freeze semantics;
 - a quorum or independently sourced checkpoint set with a documented trust model.
 
-The chosen mechanism must specify freshness, quorum, equivocation handling, chain reorganization policy if on-chain, and behavior when the checkpoint source is unavailable. A timeout or RPC failure must never be interpreted as proof that no migration exists.
+No concrete registry adapter is selected yet. The workflow requires `publish_checkpoint(record)` and `lookup_checkpoint(old_identity)` callbacks; this is an integration seam, not a network-wide registry implementation. The chosen mechanism must specify freshness, quorum, equivocation handling, chain reorganization policy if on-chain, and behavior when the checkpoint source is unavailable. A timeout or RPC failure must never be interpreted as proof that no migration exists.
 
 Existing legacy clients cannot enforce a protocol they do not implement. The migration guarantee therefore applies only to clients that support this migration protocol and its checkpoint policy.
 
@@ -57,7 +57,7 @@ Existing legacy clients cannot enforce a protocol they do not implement. The mig
 - Verify the old-key migration authorization.
 - Verify the new-key EIP-712 acceptance.
 - Verify that the new identity and final legacy digest match the payload.
-- Persist the terminal checkpoint and reject subsequent updates to the old identity. The local ledger primitive exists; enforcement in `SiteManager`/`ContentManager` is still pending.
+- Persist the terminal checkpoint and reject subsequent updates to the old identity. The local ledger primitive and ContentManager terminal-manifest guard exist. SiteManager/UI historical-mode integration remains incomplete.
 - Keep the old site readable in historical/read-only mode.
 - Display the new Ethereum identity and a verifiable link between old and new identities.
 - Reject missing, mismatched, replayed, stale or superseded proofs.
@@ -75,6 +75,7 @@ Existing legacy clients cannot enforce a protocol they do not implement. The mig
 - Checkpoint source is unavailable, inconsistent or equivocating.
 - A malicious third party attempts to migrate a site without the old key.
 
-## Remaining work
+## Workflow API and safety boundaries\n\n`prepare_migration(site, bitcoin_private_key, ethereum_private_key)` builds a final Bitcoin root manifest with explicit historical/target metadata and returns it with a dual-signed record. It refuses sites with `includes` or `user_contents`, because their submanifest signer lifecycle is not migrated yet. `commit_migration(...)` persists the final root manifest, publishes the record through an injected registry adapter, reads it back independently, pins the verified checkpoint locally, marks the old Site object as historical, and finally invokes an injected Ethereum-site registration callback. The callback must be idempotent: a retry after successful publication may invoke it again.\n\nThe orchestration API does not itself choose a chain, deploy a registry, copy site data, or implement Ethereum SiteManager registration. It is therefore not yet a turnkey migration command. The old site remains on disk and keeps its Bitcoin address.\n\n## Remaining work
 
 See docs/ToDo.md for implementation tasks. No global freeze, ownership transfer or rollback protection should be claimed until the checkpoint discovery policy is implemented and adversarial tests pass.
+\n\nThe current test additions cover signature binding, legacy signer-policy attestation, checkpoint sequencing, registry read-back ordering and retry behavior. They have not been executed in this environment.\n
