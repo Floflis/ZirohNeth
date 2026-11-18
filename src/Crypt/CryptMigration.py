@@ -89,7 +89,7 @@ def legacy_manifest_digest(manifest):
     RFC 8785 encoding used by the new migration payload.
     """
     protected = copy.deepcopy(manifest)
-    for field in ("sign", "signs", "signers_sign"):
+    for field in ("sign", "signs"):
         protected.pop(field, None)
     serialized = json.dumps(protected, sort_keys=True)
     return "0x" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
