@@ -716,6 +716,9 @@ class ContentManager:
 
         Return: The new content if filewrite = False"""
 
+        if self.site.settings.get("migration_role") == "historical":
+            raise SignError("Historical Bitcoin identities are read-only after migration")
+
         if not isinstance(inner_path, Path):
             inner_path = Path(inner_path)
         if inner_path.name != 'content.json':
