@@ -67,3 +67,10 @@ Before release:
 - Verify supported Python versions, operating systems and dependency installation.
 
 Remaining work is tracked in docs/ToDo.md.
+
+
+## Tor policy for Ethereum-addressed sites
+
+Ethereum-addressed sites (0x identities) do not create per-site Tor hidden services and do not use Tor onion peers. The Tor manager returns no hidden-service address for an Ethereum site, site peer discovery skips onion peers for Ethereum identities, and the connection server rejects onion connections when a site context identifies an Ethereum address.
+
+This is a per-site onion-transport restriction. It does not globally disable the Tor daemon or change Tor behavior for legacy Bitcoin/Base58 sites. Global Tor modes and tracker proxy behavior are separate client-wide settings and remain subject to the follow-up audit in docs/ToDo.md. Automated regression tests are still required.
