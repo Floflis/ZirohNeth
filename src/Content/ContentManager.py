@@ -984,12 +984,15 @@ class ContentManager:
                         supplied_previous = content.get("previous_update_digest", "")
                         if supplied_previous.lower() != expected_digest.lower():
                             raise VerifyError("Ethereum update does not extend the locally trusted manifest")
+                        self.site.settings["freshness_status"] = "locally_continuous"
                     except (TypeError, ValueError, KeyError) as err:
                         if isinstance(err, VerifyError):
                             raise
                         raise VerifyError("Invalid Ethereum update-chain fields: %s" % err)
                 # On first contact there is no trusted predecessor. Do not
                 # claim freshness; the signed manifest is only authenticated.
+                else:
+                    self.site.settings["freshness_status"] = "unverified_first_contact"
         if content_version == 2:
             if content.get("hash_algorithm") != "blake3-256":
                 raise VerifyError("Unsupported v2 content hash algorithm")
