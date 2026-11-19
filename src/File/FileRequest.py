@@ -408,7 +408,13 @@ class FileRequest(object):
                 "Found: %s for %s hashids in %.3fs" %
                 ({key: len(val) for key, val in back.items()}, len(params["hash_ids"]), time.time() - s)
             )
-        self.response({"peers": back["ipv4"], "peers_onion": back["onion"], "peers_ipv6": back["ipv6"], "my": my_hashes})
+        self.response({
+            "hashfield_version": 2,
+            "peers": back["ipv4"],
+            "peers_onion": back["onion"],
+            "peers_ipv6": back["ipv6"],
+            "my": my_hashes
+        })
 
     def actionSetHashfield(self, params):
         site = self.sites.get(params["site"])
