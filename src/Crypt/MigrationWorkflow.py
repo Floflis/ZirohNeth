@@ -107,6 +107,27 @@ def _copy_manifest_files(source_site, target_site, manifest):
                 if collection_name == "files_optional":
                     continue
                 raise MigrationWorkflowError("Required site file is missing: " + relative_name)
+
+            # Authenticate legacy bytes before the new identity can re-sign them.
+            # v1 file digests use the unchanged SHA-512-truncated-256 verifier.
+            file_info = manifest[collection_name][relative_name]
+            expected_hash = file_info.get("sha512")
+            if not expected_hash:
+                raise MigrationWorkflowError(
+                    "Legacy file has no SHA-512 digest: " + relative_name
+                )
+            with source.open("rb") as stream:
+                actual_hash = CryptHash.sha512sum(stream)
+                actual_size = stream.tell()
+            if actual_hash != expected_hash:
+                raise MigrationWorkflowError(
+                    "Legacy file digest mismatch; migration aborted: " + relative_name
+                )
+            if file_info.get("size") != actual_size:
+                raise MigrationWorkflowError(
+                    "Legacy file size mismatch; migration aborted: " + relative_name
+                )
+
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
@@ -119,9 +140,16 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
 
     if existing_path.is_file():
         existing = new_site.storage.loadJson("content.json")
+        expected_migration = {
+            "protocol": CryptMigration.PROTOCOL,
+            "source_identity": record["old_identity"],
+            "proof_digest_algorithm": "blake3-256",
+            "proof_digest": CryptMigration.record_digest(record),
+        }
         if (
             existing.get("address") == new_identity
             and int(existing.get("content_version", 1)) == 2
+            and existing.get("migration") == expected_migration
             and new_site.content_manager.verifyFile("content.json", existing, ignore_same=False)
         ):
             new_site.settings["own"] = True
@@ -151,6 +179,14 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
     ):
         template.pop(field, None)
     template["address"] = new_identity
+    # The v2 manifest itself carries the exact source/proof relationship.
+    # It is included in the EIP-712 protected manifest digest.
+    template["migration"] = {
+        "protocol": CryptMigration.PROTOCOL,
+        "source_identity": record["old_identity"],
+        "proof_digest_algorithm": "blake3-256",
+        "proof_digest": CryptMigration.record_digest(record),
+    }
     template["files"] = {}
     template.pop("files_optional", None)
     new_site.storage.writeJson("content.json", template)
