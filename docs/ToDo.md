@@ -2,6 +2,23 @@
 
 This file tracks work that is not yet implemented or not yet verified. An item moves out of this list only after code, tests, compatibility checks and documentation are complete.
 
+## Content v2 audit remediation (2026-11-19)
+
+Code changes have been started for legacy-file pre-verification, staged migration recovery, destination-to-proof binding, local update-chain continuity, and backend verification-state reporting. These remain open until automated tests and runtime validation pass.
+
+- [ ] Add tampered legacy-file and missing-required/optional-file tests for migration pre-verification.
+- [ ] Add crash/fault-injection tests before copy, during copy, before promotion, after promotion, during signing and after publish; verify journal-bound resume and safe conflict rejection.
+- [ ] Add tests proving an unrelated but valid Ethereum destination cannot be reused, while an exact proof-bound destination is idempotent.
+- [ ] Add v2 update-chain tests for valid sequential updates, replay, rollback, skipped sequence, same-sequence fork and restart persistence.
+- [ ] Define first-contact freshness witnesses or quorum/transparency policy. A valid signature alone does not prove freshness; current clients must surface this limitation.
+- [ ] Version peer hashfield encoding with digest-algorithm namespaces while preserving legacy peer interoperability. Do not reinterpret the existing 16-bit wire format.
+- [ ] Version migration digest fields explicitly in a new migration protocol revision, including canonicalization, encoding, truncation and domain separation. Do not mutate v1 migration semantics.
+- [ ] Add clean-environment pip installation and supported-Python CI validation for requirements.txt.
+- [ ] Keep includes/user_contents migration fail-closed; document preflight behavior and design a trust-preserving migration format before supporting them.
+- [ ] Add automated transport tests and document per-site onion restrictions separately from global Tor and tracker proxy behavior.
+- [ ] Add browser-to-backend tests for direct Ethereum navigation, listing, reload, internal links, invalid manifests and peer/transport failures.
+- [ ] Execute the complete unit/integration suite and record actual results before declaring Content v2 release-ready.
+
 ## Content protocol
 
 - [ ] Complete the content v2 implementation and run the full test suite.
