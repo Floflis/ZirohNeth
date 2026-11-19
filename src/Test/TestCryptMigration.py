@@ -13,8 +13,8 @@ if "Config" not in sys.modules:
 from Crypt import CryptBitcoin, CryptMigration
 
 
-def _signed(sequence=1, previous=CryptMigration.ZERO_DIGEST):
-    bitcoin_key = CryptBitcoin.newPrivatekey()
+def _signed(sequence=1, previous=CryptMigration.ZERO_DIGEST, bitcoin_key=None):
+    bitcoin_key = bitcoin_key or CryptBitcoin.newPrivatekey()
     ethereum = Account.create()
     payload = {
         "protocol": CryptMigration.PROTOCOL,
@@ -57,7 +57,8 @@ def test_checkpoint_requires_explicit_trust_anchor(tmp_path):
 
 
 def test_checkpoint_rejects_replay_and_accepts_next_link(tmp_path):
-    first = _signed()
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    first = _signed(bitcoin_key=bitcoin_key)
     store = CryptMigration.CheckpointStore(tmp_path / "checkpoints.json")
     store.trust_checkpoint(first, CryptMigration.record_digest(first))
     with pytest.raises(CryptMigration.MigrationError):
@@ -66,6 +67,7 @@ def test_checkpoint_rejects_replay_and_accepts_next_link(tmp_path):
     second = _signed(
         sequence=2,
         previous="0x" + CryptMigration.record_digest(first),
+        bitcoin_key=bitcoin_key,
     )
     store.append(second)
     assert store.latest() == second
