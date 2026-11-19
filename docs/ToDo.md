@@ -2,6 +2,29 @@
 
 This file tracks work that is not yet implemented or not yet verified. An item moves out of this list only after code, tests, compatibility checks and documentation are complete.
 
+## Content v2 audit remediation (2026-11-19)
+
+The first remediation tranche is implemented. Focused cryptography/migration tests and Python 3.11 dependency/syntax checks pass; crash recovery, destination idempotency, peer interoperability and end-to-end runtime validation remain open.
+
+- [x] Test tampered legacy files, missing required files and absent optional files during migration pre-verification (focused migration tests pass).
+- [x] Test that the local recovery journal binds protocol, source, destination and the exact signed proof digest.
+- [ ] Add crash/fault-injection tests before copy, during copy, before promotion, after promotion, during signing and after publish; verify journal-bound resume and safe conflict rejection.
+- [x] Test that the dual-signed migration proof is embedded in and binds the final Bitcoin root manifest.
+- [ ] Add destination-reuse tests proving an unrelated but valid Ethereum destination cannot be reused, while an exact proof-bound destination is idempotent.
+- [x] Test sequential updates, replay, rollback, skipped sequence, same-sequence fork and idempotent re-verification against the local predecessor.
+- [ ] Test persisted predecessor recovery and anti-rollback behavior across process restarts.
+- [ ] Define first-contact freshness witnesses or quorum/transparency policy. A valid signature alone does not prove freshness; current clients must surface this limitation.
+- [ ] Version peer hashfield encoding with digest-algorithm namespaces while preserving legacy peer interoperability. Do not reinterpret the existing 16-bit wire format.
+- [x] Test protocol v2 dual-signature round trips, explicit SHA-256/BLAKE3-256 digest identifiers, both RFC 8785 canonicalization identifiers, version-2 EIP-712 domain and rejection of unknown schema values; retain the v1 verifier unchanged.
+- [ ] Add v1/v2 migration golden vectors and cross-implementation signature/digest tests.
+- [x] Validate clean-environment pip install -r requirements.txt, compileall and 24 focused Content v2 cryptography/migration tests on Python 3.11 (GitHub Actions run 31 passed).
+- [ ] Verify the full supported-Python version matrix; only Python 3.11 is covered by the current dependency workflow.
+- [ ] Keep includes/user_contents migration fail-closed; document preflight behavior and design a trust-preserving migration format before supporting them.
+- [ ] Add automated transport tests for per-site onion restrictions.
+- [x] Document Ethereum per-site onion restrictions separately from global Tor and tracker proxy behavior in the Content v2 implementation guide.
+- [ ] Add browser-to-backend tests for direct Ethereum navigation, listing, reload, internal links, invalid manifests and peer/transport failures.
+- [ ] Execute the complete unit/integration suite and record actual results before declaring Content v2 release-ready.
+
 ## Content protocol
 
 - [ ] Complete the content v2 implementation and run the full test suite.

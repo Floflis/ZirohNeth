@@ -1,13 +1,20 @@
 import copy
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from eth_account import Account
 
+if "Config" not in sys.modules:
+    config_module = ModuleType("Config")
+    config_module.config = SimpleNamespace(openssl_lib_file=None)
+    sys.modules["Config"] = config_module
+
 from Crypt import CryptBitcoin, CryptMigration
 
 
-def _signed(sequence=1, previous=CryptMigration.ZERO_DIGEST):
-    bitcoin_key = CryptBitcoin.newPrivatekey()
+def _signed(sequence=1, previous=CryptMigration.ZERO_DIGEST, bitcoin_key=None):
+    bitcoin_key = bitcoin_key or CryptBitcoin.newPrivatekey()
     ethereum = Account.create()
     payload = {
         "protocol": CryptMigration.PROTOCOL,
@@ -50,7 +57,8 @@ def test_checkpoint_requires_explicit_trust_anchor(tmp_path):
 
 
 def test_checkpoint_rejects_replay_and_accepts_next_link(tmp_path):
-    first = _signed()
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    first = _signed(bitcoin_key=bitcoin_key)
     store = CryptMigration.CheckpointStore(tmp_path / "checkpoints.json")
     store.trust_checkpoint(first, CryptMigration.record_digest(first))
     with pytest.raises(CryptMigration.MigrationError):
@@ -59,6 +67,7 @@ def test_checkpoint_rejects_replay_and_accepts_next_link(tmp_path):
     second = _signed(
         sequence=2,
         previous="0x" + CryptMigration.record_digest(first),
+        bitcoin_key=bitcoin_key,
     )
     store.append(second)
     assert store.latest() == second
@@ -103,3 +112,48 @@ def test_final_legacy_manifest_is_bound_and_verified():
     assert CryptMigration.verify_final_legacy_manifest(record, manifest)
     manifest["modified"] += 1
     assert not CryptMigration.verify_final_legacy_manifest(record, manifest)
+
+
+
+def _signed_v2():
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    ethereum = Account.create()
+    payload = {
+        "protocol": CryptMigration.PROTOCOL_V2,
+        "old_identity": CryptBitcoin.privatekeyToAddress(bitcoin_key),
+        "new_identity": ethereum.address,
+        "final_legacy_manifest_digest": "0x" + ("22" * 32),
+        "final_legacy_manifest_digest_algorithm": "sha256",
+        "final_legacy_manifest_canonicalization": "rfc8785",
+        "migration_payload_digest_algorithm": "blake3-256",
+        "canonicalization": "rfc8785",
+        "final_legacy_sequence": 77,
+        "migration_sequence": 1,
+        "previous_migration_digest": CryptMigration.ZERO_DIGEST,
+    }
+    return CryptMigration.sign_migration(payload, bitcoin_key, "eth:" + ethereum.key.hex())
+
+
+def test_migration_protocol_v2_round_trip_and_explicit_digest_suite():
+    record = _signed_v2()
+    assert CryptMigration.verify_migration(record)
+    assert record["final_legacy_manifest_digest_algorithm"] == "sha256"
+    assert record["final_legacy_manifest_canonicalization"] == "rfc8785"
+    assert record["migration_payload_digest_algorithm"] == "blake3-256"
+    assert record["canonicalization"] == "rfc8785"
+
+    for field, invalid in (
+        ("final_legacy_manifest_digest_algorithm", "sha512"),
+        ("final_legacy_manifest_canonicalization", "json-sort-keys"),
+        ("migration_payload_digest_algorithm", "sha256"),
+        ("canonicalization", "json-sort-keys"),
+    ):
+        changed = copy.deepcopy(record)
+        changed[field] = invalid
+        assert not CryptMigration.verify_migration(changed)
+
+
+def test_migration_protocol_v2_rejects_missing_digest_suite_fields():
+    record = _signed_v2()
+    record.pop("canonicalization")
+    assert not CryptMigration.verify_migration(record)

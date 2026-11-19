@@ -955,6 +955,7 @@ class ContentManager:
                 if not CryptMigration.verify_final_legacy_manifest(migration_record, content):
                     raise VerifyError("Invalid Bitcoin-to-Ethereum migration proof in content.json")
                 self.site.settings["migration_role"] = "historical"
+                self.site.settings["migration_state"] = "migration_verified"
                 self.site.settings["migration_target"] = migration_record["new_identity"]
                 digest = CryptMigration.record_digest(migration_record)
                 if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
@@ -962,9 +963,24 @@ class ContentManager:
                 if not checkpoint:
                     checkpoint_store.trust_checkpoint(migration_record, digest)
             elif checkpoint:
+                self.site.settings["migration_state"] = "migration_conflict"
                 raise VerifyError("Bitcoin identity is terminal after its Ethereum migration checkpoint")
+            else:
+                self.site.settings["migration_state"] = "not_migrated"
 
         content_version = int(content.get("content_version", 1))
+        if content_version == 2:
+            # A valid EIP-712 signature authenticates an update, not its place
+            # in the locally observed history. Enforce continuity against the
+            # last persisted manifest whenever this client has one.
+            if Path(inner_path) == Path("content.json"):
+                previous = self.contents.get("content.json")
+                try:
+                    self.site.settings["freshness_status"] = CryptEthereum.verify_update_chain(
+                        previous, content
+                    )
+                except (TypeError, ValueError, KeyError) as err:
+                    raise VerifyError("Invalid Ethereum update-chain fields: %s" % err)
         if content_version == 2:
             if content.get("hash_algorithm") != "blake3-256":
                 raise VerifyError("Unsupported v2 content hash algorithm")
@@ -1095,6 +1111,11 @@ class ContentManager:
                     if inner_path in self.site.bad_files:
                         del self.site.bad_files[inner_path]
                     raise VerifyError("This file is archived!")
+                # Never retain a previous "verified historical" badge while a
+                # replacement root manifest is being checked.
+                if inner_path == "content.json":
+                    self.site.settings["content_verification_status"] = "pending"
+                    self.site.settings["migration_state"] = "verification_unavailable"
                 # Check sign
                 sign = new_content.get("sign")
                 signs = new_content.get("signs", {})
@@ -1144,7 +1165,11 @@ class ContentManager:
                         raise VerifyError("Invalid Ethereum EIP-712 signature")
                     if inner_path != "content.json" and not self.verifyCert(inner_path, new_content):
                         raise VerifyError("Invalid cert!")
-                    return self.verifyContent(inner_path, new_content)
+                    verified = self.verifyContent(inner_path, new_content)
+                    if inner_path == "content.json":
+                        self.site.settings["content_verification_status"] = "verified"
+                        self.site.settings["content_version"] = 2
+                    return verified
 
                 if signs:  # Legacy Bitcoin signing
                     valid_signers = self.getValidSigners(inner_path, new_content)
@@ -1172,13 +1197,23 @@ class ContentManager:
                         # to validate the embedded final Bitcoin manifest.
                         verified_content = dict(new_content)
                         verified_content["signs"] = signs
-                        return self.verifyContent(inner_path, verified_content)
+                        verified = self.verifyContent(inner_path, verified_content)
+                        if inner_path == "content.json":
+                            self.site.settings["content_verification_status"] = "verified"
+                            self.site.settings["content_version"] = 1
+                        return verified
                 elif sign:
                     raise VerifyError("Invalid old-style sign")
                 else:
                     raise VerifyError("Not signed")
 
             except Exception as err:
+                if inner_path == "content.json":
+                    self.site.settings["content_verification_status"] = "invalid"
+                    if "migration" in str(err).lower() or "checkpoint" in str(err).lower():
+                        self.site.settings["migration_state"] = "migration_conflict"
+                    else:
+                        self.site.settings["migration_state"] = "verification_unavailable"
                 self.log.warning("%s: verify sign error: %s" % (inner_path, Debug.formatException(err)))
                 raise err
 
