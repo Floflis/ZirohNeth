@@ -322,6 +322,12 @@ def commit_migration(
     if latest and CryptMigration.record_digest(latest) != expected_digest:
         raise MigrationWorkflowError("A different migration checkpoint is already pinned")
 
+    # Expose an explicit in-progress state before the irreversible publish
+    # sequence. Verification promotes it to migration_verified only after the
+    # embedded proof and source/destination relationship have been checked.
+    site.settings["migration_state"] = "migration_pending"
+    site.saveSettings()
+
     # Keep the old Bitcoin address and directory intact. Publish its signed
     # terminal manifest before pinning it locally.
     site.storage.writeJson("content.json", final_manifest)
