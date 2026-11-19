@@ -1,10 +1,16 @@
 import copy
+import io
 import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from eth_account import Account
 
-from Crypt import CryptBitcoin, CryptMigration
+from Crypt import CryptBitcoin, CryptMigration, CryptHash
 from Crypt import MigrationWorkflow
+from Crypt.MigrationWorkflow import _copy_manifest_files, MigrationWorkflowError
 
 
 class _Storage:
@@ -92,3 +98,77 @@ def test_embedded_migration_proof_is_invalidated_by_manifest_or_record_tampering
     changed = copy.deepcopy(manifest)
     changed["title"] = "tampered"
     assert not CryptMigration.verify_final_legacy_manifest(record, changed)
+
+
+
+def _source_site(directory):
+    return SimpleNamespace(
+        storage=SimpleNamespace(directory=Path(directory)),
+        content_manager=SimpleNamespace(isValidRelativePath=lambda path: True),
+    )
+
+
+def test_migration_copies_only_legacy_digest_verified_bytes(tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    original = b"authenticated legacy bytes"
+    (source / "index.html").write_bytes(original)
+    manifest = {
+        "files": {
+            "index.html": {
+                "sha512": CryptHash.sha512sum(io.BytesIO(original)),
+                "size": len(original),
+            }
+        }
+    }
+
+    _copy_manifest_files(
+        _source_site(source),
+        SimpleNamespace(storage=SimpleNamespace(directory=target)),
+        manifest,
+    )
+
+    assert (target / "index.html").read_bytes() == original
+
+
+def test_migration_rejects_tampered_legacy_file_before_v2_import(tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    original = b"the bytes authorized by bitcoin"
+    (source / "index.html").write_bytes(b"tampered bytes")
+    manifest = {
+        "files": {
+            "index.html": {
+                "sha512": CryptHash.sha512sum(io.BytesIO(original)),
+                "size": len(original),
+            }
+        }
+    }
+
+    with pytest.raises(MigrationWorkflowError, match="digest mismatch"):
+        _copy_manifest_files(
+            _source_site(source),
+            SimpleNamespace(storage=SimpleNamespace(directory=target)),
+            manifest,
+        )
+
+    assert not (target / "index.html").exists()
+
+
+def test_migration_rejects_missing_required_legacy_file(tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    manifest = {"files": {"index.html": {"sha512": "00" * 32, "size": 0}}}
+
+    with pytest.raises(MigrationWorkflowError, match="Required site file is missing"):
+        _copy_manifest_files(
+            _source_site(source),
+            SimpleNamespace(storage=SimpleNamespace(directory=target)),
+            manifest,
+        )
