@@ -214,6 +214,9 @@ class PeerHashfield(object):
         hashfields = payload.get("hashfields")
         if not isinstance(hashfields, dict):
             raise ValueError("Version 2 hashfields must be a mapping")
+        unknown_algorithms = set(hashfields) - set(self.ALGORITHM_IDS)
+        if unknown_algorithms:
+            raise ValueError("Unknown hashfield algorithms: %s" % sorted(unknown_algorithms))
 
         # Decode into temporary buckets before mutating current peer state.
         decoded = {}
