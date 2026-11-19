@@ -21,4 +21,6 @@ asyncio-gevent
 aio-btdht@git+https://github.com/bashkirtsevich-llc/aiobtdht@f99d881e9b992da13519721e251912c32a566cd7
 aio-krpc-server@git+https://github.com/bashkirtsevich-llc/aiokrpc@fe0b18a98d4dc19034f8152afbae78fb600830e2
 GitPython
-blake3>=0.4.1\neth-account>=0.11.0\nrfc8785>=0.1.4\n
+blake3>=0.4.1
+eth-account>=0.11.0
+rfc8785>=0.1.4
