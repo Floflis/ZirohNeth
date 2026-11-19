@@ -115,13 +115,14 @@ class TestPeer:
         # Its raw compatibility table is the union of both namespaces.
         assert field.getHashId("CAFE", "sha512") in legacy
 
-        # A legacy local cache has no way to represent BLAKE3 separately.
-        # ContentManager rebuilds such mixed caches from verified local files.
+        # Raw bytes alone cannot identify the original digest algorithm.
+        # The compatibility API therefore preserves them as ambiguous hints.
         legacy_cache = PeerHashfield()
         legacy_cache.replaceFromBytes(payload["hashfield_raw"])
         assert sha512_id in legacy_cache
-        assert blake3_id not in legacy_cache
-        assert cafe_blake3_id not in legacy_cache
+        assert blake3_id in legacy_cache
+        assert cafe_blake3_id in legacy_cache
+        assert field.getHashId("CAFE", "sha512") in legacy_cache
 
         # The persisted cache keeps both algorithm namespaces.
         restored.replaceFromProtocol(payload)
