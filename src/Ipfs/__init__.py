@@ -1,0 +1,1 @@
+"""Optional IPFS integration package."""
