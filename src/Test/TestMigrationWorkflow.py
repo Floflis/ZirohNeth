@@ -2,9 +2,18 @@ import copy
 import io
 import json
 from pathlib import Path
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
+
+# MigrationWorkflow imports the application Config singleton. These focused
+# unit tests do not boot the full application/test conftest, so provide only
+# the inert config object required at module import time.
+if "Config" not in sys.modules:
+    config_module = ModuleType("Config")
+    config_module.config = SimpleNamespace()
+    sys.modules["Config"] = config_module
 
 from eth_account import Account
 
