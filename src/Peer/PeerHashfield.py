@@ -232,6 +232,9 @@ class PeerHashfield(object):
             return False
         if version != self.VERSION:
             raise ValueError("Unsupported hashfield protocol version: %s" % version)
+        if "hashfield_raw" not in payload:
+            raise ValueError("Version 2 payload is missing its legacy compatibility field")
+        self._decodeLegacyField(payload["hashfield_raw"])
 
         hashfields = payload.get("hashfields")
         if not isinstance(hashfields, dict):
