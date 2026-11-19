@@ -1123,6 +1123,11 @@ class ContentManager:
                     if inner_path in self.site.bad_files:
                         del self.site.bad_files[inner_path]
                     raise VerifyError("This file is archived!")
+                # Never retain a previous "verified historical" badge while a
+                # replacement root manifest is being checked.
+                if inner_path == "content.json":
+                    self.site.settings["content_verification_status"] = "pending"
+                    self.site.settings["migration_state"] = "verification_unavailable"
                 # Check sign
                 sign = new_content.get("sign")
                 signs = new_content.get("signs", {})
