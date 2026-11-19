@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 from Config import config
-from Crypt import CryptBitcoin, CryptEthereum, CryptMigration
+from Crypt import CryptBitcoin, CryptEthereum, CryptMigration, CryptHash
 
 
 class MigrationWorkflowError(CryptMigration.MigrationError):
