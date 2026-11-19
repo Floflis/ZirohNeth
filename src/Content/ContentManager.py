@@ -3,7 +3,6 @@ import time
 import re
 import os
 import copy
-import base64
 import sys
 from pathlib import Path
 from functools import reduce
@@ -66,10 +65,23 @@ class ContentManager:
             self.loadContent(add_bad_files=False, delete_removed_files=False)
         self.site.settings["size"], self.site.settings["size_optional"] = self.getTotalSize()
 
-        # Load hashfield cache
-        if "hashfield" in self.site.settings.get("cache", {}):
-            self.hashfield.frombytes(base64.b64decode(self.site.settings["cache"]["hashfield"]))
-            del self.site.settings["cache"]["hashfield"]
+        # Load the versioned cache when available. A pre-v2 cache has no
+        # algorithm namespace, so even a seemingly SHA-512-only manifest cannot
+        # prove that old cached prefixes were not produced by BLAKE3.
+        cache = self.site.settings.get("cache", {})
+        if "hashfield_v2" in cache:
+            try:
+                self.hashfield.replaceFromCache(cache["hashfield_v2"])
+            except (TypeError, ValueError) as err:
+                self.log.warning("Ignoring invalid hashfield v2 cache: %s" % err)
+                self.site.storage.updateBadFiles(quick_check=False)
+            del cache["hashfield_v2"]
+            cache.pop("hashfield", None)
+        elif "hashfield" in cache:
+            # Rebuild from locally present, verified optional files instead of
+            # guessing which algorithm owns each legacy 16-bit prefix.
+            del cache["hashfield"]
+            self.site.storage.updateBadFiles(quick_check=False)
         elif self.contents.get("content.json") and self.site.settings["size_optional"] > 0:
             self.site.storage.updateBadFiles()  # No hashfield cache created yet
         self.has_optional_files = bool(self.hashfield)
@@ -152,13 +164,15 @@ class ContentManager:
                 new_hash = info[hash_type]
                 if old_content and old_content.get("files_optional", {}).get(relative_path):
                     # We have the file in the old content
-                    old_hash = old_content["files_optional"][relative_path].get(hash_type)
+                    old_file_info = old_content["files_optional"][relative_path]
+                    old_hash_algorithm = "blake3" if "blake3" in old_file_info else "sha512"
+                    old_hash = old_file_info.get(old_hash_algorithm)
                     if old_hash != new_hash and self.site.isDownloadable(file_inner_path):
                         changed.append(file_inner_path)  # Download new file
-                    elif old_hash and old_hash != new_hash and self.hashfield.hasHash(old_hash) and not self.site.settings.get("own"):
+                    elif old_hash and old_hash != new_hash and self.hashfield.hasHash(old_hash, old_hash_algorithm) and not self.site.settings.get("own"):
                         try:
-                            old_hash_id = self.hashfield.getHashId(old_hash)
-                            self.optionalRemoved(file_inner_path, old_hash_id, old_content["files_optional"][relative_path]["size"])
+                            old_hash_id = self.hashfield.getHashId(old_hash, old_hash_algorithm)
+                            self.optionalRemoved(file_inner_path, old_hash_id, old_file_info["size"])
                             self.optionalDelete(file_inner_path)
                             self.log.debug("Deleted changed optional file: %s" % file_inner_path)
                         except Exception as err:
@@ -203,9 +217,10 @@ class ContentManager:
                             if old_content.get("files_optional") and old_content["files_optional"].get(file_relative_path):
                                 self.optionalDelete(file_inner_path)
                                 old_info = old_content["files_optional"][file_relative_path]
-                                old_hash = old_info.get("blake3", old_info.get("sha512"))
-                                if self.hashfield.hasHash(old_hash):
-                                    old_hash_id = self.hashfield.getHashId(old_hash)
+                                old_hash_algorithm = "blake3" if "blake3" in old_info else "sha512"
+                                old_hash = old_info.get(old_hash_algorithm)
+                                if self.hashfield.hasHash(old_hash, old_hash_algorithm):
+                                    old_hash_id = self.hashfield.getHashId(old_hash, old_hash_algorithm)
                                     self.optionalRemoved(file_inner_path, old_hash_id, old_content["files_optional"][file_relative_path]["size"])
                             else:
                                 self.site.storage.delete(file_inner_path)
@@ -402,12 +417,12 @@ class ContentManager:
             return False
 
     def isDownloaded(self, inner_path, hash_id=None):
-        if not hash_id:
+        if hash_id is None:
             file_info = self.getFileInfo(inner_path)
             if not file_info or not ("blake3" in file_info or "sha512" in file_info):
                 return False
-            digest = file_info.get("blake3", file_info.get("sha512"))
-            hash_id = self.hashfield.getHashId(digest)
+            algorithm = "blake3" if "blake3" in file_info else "sha512"
+            hash_id = self.hashfield.getHashId(file_info[algorithm], algorithm)
         return hash_id in self.hashfield
 
     # Is modified since signing
@@ -646,8 +661,8 @@ class ContentManager:
         else:
             raise SignError("Unsupported content hash algorithm: %s" % hash_algorithm)
 
-        if optional and not self.hashfield.hasHash(digest):
-            self.optionalDownloaded(file_inner_path, self.hashfield.getHashId(digest), file_size, own=True)
+        if optional and not self.hashfield.hasHash(digest, hash_field):
+            self.optionalDownloaded(file_inner_path, self.hashfield.getHashId(digest, hash_field), file_size, own=True)
 
         back[file_relative_path] = {hash_field: digest, "size": file_size}
         return back

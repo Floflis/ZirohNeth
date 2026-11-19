@@ -147,7 +147,10 @@ class Site(object):
     def getSettingsCache(self):
         back = {}
         back["bad_files"] = self.bad_files
+        # Keep the legacy SHA-512 cache for downgrade compatibility and
+        # persist the algorithm-aware buckets for new clients.
         back["hashfield"] = base64.b64encode(self.content_manager.hashfield.tobytes()).decode("ascii")
+        back["hashfield_v2"] = self.content_manager.hashfield.toCache()
         return back
 
     # Max site size in MB

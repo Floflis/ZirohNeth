@@ -316,40 +316,71 @@ class Peer(object):
             return False
 
         self.time_hashfield = time.time()
-        res = self.request("getHashfield", {"site": self.site.address})
+        res = self.request("getHashfield", {"site": self.site.address, "hashfield_version": 2})
         if not res or "error" in res or "hashfield_raw" not in res:
             return False
-        self.hashfield.replaceFromBytes(res["hashfield_raw"])
+        # Version 2 peers return algorithm buckets. Older peers ignore the
+        # request hint and return their untyped 16-bit prefix table.
+        self.hashfield.replaceFromProtocol(res)
 
         return self.hashfield
 
     # Find peers for hashids
     # Return: {hash1: ["ip:port", "ip:port",...],...}
     def findHashIds(self, hash_ids):
-        res = self.request("findHashIds", {"site": self.site.address, "hash_ids": hash_ids})
+        # Legacy peers only understand the original 16-bit prefix. Query both
+        # the namespaced ID and its raw prefix for BLAKE3; only a response that
+        # explicitly identifies protocol v2 can disambiguate the result.
+        legacy_blake3_ids = collections.defaultdict(list)
+        wire_hash_ids = set(hash_ids)
+        for hash_id in hash_ids:
+            algorithm, prefix = PeerHashfield.decodeHashId(hash_id)
+            if algorithm == "blake3":
+                legacy_blake3_ids[prefix].append(hash_id)
+                wire_hash_ids.add(prefix)
+
+        res = self.request("findHashIds", {
+            "site": self.site.address,
+            "hash_ids": sorted(wire_hash_ids),
+            "hashfield_version": PeerHashfield.VERSION
+        })
         if not res or "error" in res or type(res) is not dict:
             return False
 
+        response_version = res.get("hashfield_version")
+        if response_version not in (None, PeerHashfield.VERSION):
+            return False  # Do not silently reinterpret an unknown explicit version as legacy
+        is_v2_response = response_version == PeerHashfield.VERSION
         back = collections.defaultdict(list)
+
+        def add_result(hash_id, peers):
+            back[hash_id] += peers
+            # With an unversioned legacy response, a raw prefix may represent
+            # either digest algorithm. Keep it as an availability hint for
+            # requested BLAKE3 IDs too; final file verification decides.
+            if not is_v2_response:
+                for blake3_id in legacy_blake3_ids.get(hash_id, []):
+                    back[blake3_id] += peers
 
         for ip_type in ["ipv4", "ipv6", "onion"]:
             if ip_type == "ipv4":
                 key = "peers"
             else:
                 key = "peers_%s" % ip_type
-            for hash, peers in list(res.get(key, {}).items())[0:30]:
+            for hash_id, peers in list(res.get(key, {}).items())[0:30]:
                 if ip_type == "onion":
                     unpacker_func = helper.unpackOnionAddress
                 else:
                     unpacker_func = helper.unpackAddress
 
-                back[hash] += list(map(unpacker_func, peers))
+                add_result(hash_id, list(map(unpacker_func, peers)))
 
-        for hash in res.get("my", []):
-            if self.connection:
-                back[hash].append((self.connection.ip, self.connection.port))
-            else:
-                back[hash].append((self.ip, self.port))
+        own_address = (
+            (self.connection.ip, self.connection.port)
+            if self.connection else (self.ip, self.port)
+        )
+        for hash_id in res.get("my", []):
+            add_result(hash_id, [own_address])
 
         return back
 
@@ -361,7 +392,10 @@ class Peer(object):
         if self.time_my_hashfield_sent and self.site.content_manager.hashfield.time_changed <= self.time_my_hashfield_sent:
             return False  # Peer already has the latest hashfield
 
-        res = self.request("setHashfield", {"site": self.site.address, "hashfield_raw": self.site.content_manager.hashfield.tobytes()})
+        params = {"site": self.site.address}
+        params.update(self.site.content_manager.hashfield.toProtocolPayload())
+        # Legacy peers consume hashfield_raw and safely ignore the v2 fields.
+        res = self.request("setHashfield", params)
         if not res or "error" in res:
             return False
         else:

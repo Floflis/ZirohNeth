@@ -368,7 +368,7 @@ class FileRequest(object):
 
         peer.time_my_hashfield_sent = time.time()  # Don't send again if not changed
 
-        self.response({"hashfield_raw": site.content_manager.hashfield.tobytes()})
+        self.response(site.content_manager.hashfield.toProtocolPayload())
 
     def findHashIds(self, site, hash_ids, limit=100):
         back = collections.defaultdict(lambda: collections.defaultdict(list))
@@ -389,26 +389,86 @@ class FileRequest(object):
             self.connection.badAction(5)
             return False
 
-        event_key = "%s_findHashIds_%s_%s" % (self.connection.ip, params["site"], len(params["hash_ids"]))
+        hashfield_version = params.get("hashfield_version")
+        if hashfield_version not in (None, 2):
+            self.response({"error": "Unsupported hashfield protocol version"})
+            self.connection.badAction(5)
+            return False
+
+        requested_hash_ids = params.get("hash_ids")
+        if not isinstance(requested_hash_ids, list):
+            self.response({"error": "hash_ids must be a list"})
+            self.connection.badAction(5)
+            return False
+
+        # Legacy requests carry bare 16-bit prefixes. Search both namespaces
+        # so old clients can still discover either algorithm. Results are
+        # projected back to bare prefixes for their old response parser.
+        if hashfield_version is None:
+            if any(type(hash_id) is not int or not 0 <= hash_id <= 0xffff for hash_id in requested_hash_ids):
+                self.response({"error": "Invalid legacy hash ID"})
+                self.connection.badAction(5)
+                return False
+            lookup_hash_ids = sorted(set(
+                requested_hash_ids + [hash_id | 0x10000 for hash_id in requested_hash_ids]
+            ))
+        else:
+            if any(type(hash_id) is not int or not 0 <= hash_id <= 0x1ffff for hash_id in requested_hash_ids):
+                self.response({"error": "Invalid version 2 hash ID"})
+                self.connection.badAction(5)
+                return False
+            lookup_hash_ids = sorted(set(requested_hash_ids))
+
+        event_key = "%s_findHashIds_%s_%s" % (self.connection.ip, params["site"], len(requested_hash_ids))
         if self.connection.cpu_time > 0.5 or not RateLimit.isAllowed(event_key, 60 * 5):
             time.sleep(0.1)
-            back = self.findHashIds(site, params["hash_ids"], limit=10)
+            back = self.findHashIds(site, lookup_hash_ids, limit=10)
         else:
-            back = self.findHashIds(site, params["hash_ids"])
+            back = self.findHashIds(site, lookup_hash_ids)
         RateLimit.called(event_key)
 
-        my_hashes = []
         my_hashfield_set = set(site.content_manager.hashfield)
-        for hash_id in params["hash_ids"]:
-            if hash_id in my_hashfield_set:
-                my_hashes.append(hash_id)
+        if hashfield_version is None:
+            my_hashes = [
+                hash_id for hash_id in requested_hash_ids
+                if hash_id in my_hashfield_set or (hash_id | 0x10000) in my_hashfield_set
+            ]
+
+            # Convert algorithm-scoped lookup results to the untyped legacy
+            # prefix map. A legacy peer cannot distinguish SHA-512 from BLAKE3.
+            legacy_back = collections.defaultdict(lambda: collections.defaultdict(list))
+            for ip_type in ["ipv4", "ipv6", "onion"]:
+                for hash_id, peers in back[ip_type].items():
+                    prefix = hash_id & 0xffff
+                    for peer in peers:
+                        if peer not in legacy_back[ip_type][prefix]:
+                            legacy_back[ip_type][prefix].append(peer)
+            back = legacy_back
+        else:
+            my_hashes = [
+                hash_id for hash_id in requested_hash_ids
+                if hash_id in my_hashfield_set
+            ]
 
         if config.verbose:
             self.log.debug(
-                "Found: %s for %s hashids in %.3fs" %
-                ({key: len(val) for key, val in back.items()}, len(params["hash_ids"]), time.time() - s)
+                "Found: %s for %s hashids in %.3fs" % (
+                    {key: len(val) for key, val in back.items()},
+                    len(requested_hash_ids), time.time() - s
+                )
             )
-        self.response({"peers": back["ipv4"], "peers_onion": back["onion"], "peers_ipv6": back["ipv6"], "my": my_hashes})
+
+        response = {
+            "peers": back["ipv4"],
+            "peers_onion": back["onion"],
+            "peers_ipv6": back["ipv6"],
+            "my": my_hashes
+        }
+        # Omit the marker for legacy response semantics. A v2 requester can
+        # then distinguish typed IDs from the projected legacy prefix map.
+        if hashfield_version == 2:
+            response["hashfield_version"] = 2
+        self.response(response)
 
     def actionSetHashfield(self, params):
         site = self.sites.get(params["site"])
@@ -421,7 +481,12 @@ class FileRequest(object):
         peer = site.addPeer(self.connection.ip, self.connection.port, return_peer=True, connection=self.connection, source="request")
         if not peer.connection:
             peer.connect(self.connection)
-        peer.hashfield.replaceFromBytes(params["hashfield_raw"])
+        try:
+            peer.hashfield.replaceFromProtocol(params)
+        except (KeyError, TypeError, ValueError) as err:
+            self.response({"error": "Invalid hashfield payload: %s" % err})
+            self.connection.badAction(5)
+            return False
         self.response({"ok": "Updated"})
 
     # Send a simple Pong! answer

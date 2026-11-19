@@ -481,7 +481,8 @@ class SiteStorage(object):
                 file_inner_path = helper.getDirname(content_inner_path) + file_relative_path  # Relative to site dir
                 file_inner_path = file_inner_path.strip("/")  # Strip leading /
                 file_path = self.getPath(file_inner_path)
-                hash_id = self.site.content_manager.hashfield.getHashId(file_node["sha512"])
+                hash_algorithm = "blake3" if "blake3" in file_node else "sha512"
+                hash_id = self.site.content_manager.hashfield.getHashId(file_node[hash_algorithm], hash_algorithm)
                 if not os.path.isfile(file_path):
                     if self.site.content_manager.isDownloaded(file_inner_path, hash_id):
                         back["num_optional_removed"] += 1
