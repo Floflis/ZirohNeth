@@ -143,6 +143,7 @@ def _migration_journal(record):
     """Return the exact identity tuple that authorizes resuming a staged import."""
     return {
         "schema": 1,
+        "protocol": record["protocol"],
         "source_identity": record["old_identity"],
         "destination_identity": record["new_identity"],
         "legacy_manifest_digest_algorithm": "sha256",
@@ -171,7 +172,7 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
     stage_root = target_root.parent / (target_root.name + ".migration-stage")
     journal = _migration_journal(record)
     expected_migration = {
-        "protocol": CryptMigration.PROTOCOL,
+        "protocol": record["protocol"],
         "source_identity": record["old_identity"],
         "proof_digest_algorithm": "blake3-256",
         "proof_digest": CryptMigration.record_digest(record),
