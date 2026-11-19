@@ -13,9 +13,11 @@ Code changes have been started for legacy-file pre-verification, staged migratio
 - [ ] Define first-contact freshness witnesses or quorum/transparency policy. A valid signature alone does not prove freshness; current clients must surface this limitation.
 - [ ] Version peer hashfield encoding with digest-algorithm namespaces while preserving legacy peer interoperability. Do not reinterpret the existing 16-bit wire format.
 - [ ] Version migration digest fields explicitly in a new migration protocol revision, including canonicalization, encoding, truncation and domain separation. Do not mutate v1 migration semantics.
-- [ ] Add clean-environment pip installation and supported-Python CI validation for requirements.txt.
+- [x] Validate clean-environment pip install -r requirements.txt and compileall on Python 3.11 (GitHub Actions runs 1 and 2 passed).
+- [ ] Verify the full supported-Python version matrix; only Python 3.11 is covered by the current dependency workflow.
 - [ ] Keep includes/user_contents migration fail-closed; document preflight behavior and design a trust-preserving migration format before supporting them.
-- [ ] Add automated transport tests and document per-site onion restrictions separately from global Tor and tracker proxy behavior.
+- [ ] Add automated transport tests for per-site onion restrictions.
+- [x] Document Ethereum per-site onion restrictions separately from global Tor and tracker proxy behavior in the Content v2 implementation guide.
 - [ ] Add browser-to-backend tests for direct Ethereum navigation, listing, reload, internal links, invalid manifests and peer/transport failures.
 - [ ] Execute the complete unit/integration suite and record actual results before declaring Content v2 release-ready.
 
