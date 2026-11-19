@@ -57,16 +57,19 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
         filewrite=False,
         extend={
             "migration_status": "historical",
-            "migration_protocol": CryptMigration.PROTOCOL,
+            "migration_protocol": CryptMigration.PROTOCOL_V2,
             "migration_target": new_identity,
         },
     )
     final_sequence = final_manifest.get("sequence", final_manifest.get("modified"))
     payload = {
-        "protocol": CryptMigration.PROTOCOL,
+        "protocol": CryptMigration.PROTOCOL_V2,
         "old_identity": old_identity,
         "new_identity": new_identity,
         "final_legacy_manifest_digest": CryptMigration.legacy_manifest_digest(final_manifest),
+        "final_legacy_manifest_digest_algorithm": "sha256",
+        "migration_payload_digest_algorithm": "blake3-256",
+        "canonicalization": "rfc8785",
         "final_legacy_sequence": final_sequence,
         "migration_sequence": 1,
         "previous_migration_digest": CryptMigration.ZERO_DIGEST,
