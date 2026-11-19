@@ -975,28 +975,12 @@ class ContentManager:
             # last persisted manifest whenever this client has one.
             if Path(inner_path) == Path("content.json"):
                 previous = self.contents.get("content.json")
-                if previous:
-                    try:
-                        previous_digest = CryptEthereum.manifest_digest(previous)
-                        current_digest = CryptEthereum.manifest_digest(content)
-                        # Re-verifying the exact locally stored manifest (for
-                        # example during idempotent migration recovery) is not
-                        # a new update and must not be compared to itself + 1.
-                        if previous_digest != current_digest:
-                            expected_sequence = int(previous.get("sequence", 0)) + 1
-                            expected_digest = "0x" + previous_digest.hex()
-                            if int(content.get("sequence", -1)) != expected_sequence:
-                                raise VerifyError("Ethereum update sequence is not the next local sequence")
-                            supplied_previous = content.get("previous_update_digest", "")
-                            if supplied_previous.lower() != expected_digest.lower():
-                                raise VerifyError("Ethereum update does not extend the locally trusted manifest")
-                        self.site.settings["freshness_status"] = "locally_continuous"
-                    except (TypeError, ValueError, KeyError) as err:
-                        raise VerifyError("Invalid Ethereum update-chain fields: %s" % err)
-                # On first contact there is no trusted predecessor. Do not
-                # claim freshness; the signed manifest is only authenticated.
-                else:
-                    self.site.settings["freshness_status"] = "unverified_first_contact"
+                try:
+                    self.site.settings["freshness_status"] = CryptEthereum.verify_update_chain(
+                        previous, content
+                    )
+                except (TypeError, ValueError, KeyError) as err:
+                    raise VerifyError("Invalid Ethereum update-chain fields: %s" % err)
         if content_version == 2:
             if content.get("hash_algorithm") != "blake3-256":
                 raise VerifyError("Unsupported v2 content hash algorithm")
