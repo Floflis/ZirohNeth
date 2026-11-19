@@ -7,6 +7,7 @@ an audited, version-pinned checksum manifest.
 from __future__ import annotations
 
 import logging
+import ipaddress
 import os
 import socket
 import subprocess
@@ -58,7 +59,6 @@ class KuboManager:
             return False
 
     def validate_rpc(self) -> None:
-        import ipaddress
         if not self._is_loopback_url(self.rpc_url):
             raise ValueError("Kubo RPC must use HTTP on a loopback host (127.0.0.1, ::1, or localhost)")
 
