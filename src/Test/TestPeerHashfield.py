@@ -1,4 +1,14 @@
-from Peer.PeerHashfield import PeerHashfield
+import importlib.util
+import os
+
+
+# Load the self-contained hashfield module without importing Peer.__init__,
+# which also initializes the full client and its global configuration.
+_hashfield_path = os.path.join(os.path.dirname(__file__), "..", "Peer", "PeerHashfield.py")
+_spec = importlib.util.spec_from_file_location("peer_hashfield_under_test", _hashfield_path)
+_peer_hashfield = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_peer_hashfield)
+PeerHashfield = _peer_hashfield.PeerHashfield
 
 
 def test_hashfield_algorithm_namespaces():
