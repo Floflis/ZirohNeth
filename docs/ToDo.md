@@ -6,10 +6,11 @@ This file tracks work that is not yet implemented or not yet verified. An item m
 
 Code changes have been started for legacy-file pre-verification, staged migration recovery, destination-to-proof binding, local update-chain continuity, and backend verification-state reporting. These remain open until automated tests and runtime validation pass.
 
-- [ ] Add tampered legacy-file and missing-required/optional-file tests for migration pre-verification.
+- [x] Test tampered legacy files, missing required files and absent optional files during migration pre-verification (focused migration tests pass).
 - [ ] Add crash/fault-injection tests before copy, during copy, before promotion, after promotion, during signing and after publish; verify journal-bound resume and safe conflict rejection.
 - [ ] Add tests proving an unrelated but valid Ethereum destination cannot be reused, while an exact proof-bound destination is idempotent.
-- [ ] Add v2 update-chain tests for valid sequential updates, replay, rollback, skipped sequence, same-sequence fork and restart persistence.
+- [x] Test sequential updates, replay, rollback, skipped sequence, same-sequence fork and idempotent re-verification against the local predecessor.
+- [ ] Test persisted predecessor recovery and anti-rollback behavior across process restarts.
 - [ ] Define first-contact freshness witnesses or quorum/transparency policy. A valid signature alone does not prove freshness; current clients must surface this limitation.
 - [ ] Version peer hashfield encoding with digest-algorithm namespaces while preserving legacy peer interoperability. Do not reinterpret the existing 16-bit wire format.
 - [ ] Validate the implemented migration protocol v2 schema: explicit SHA-256 legacy digest, RFC 8785 legacy-manifest canonicalization, BLAKE3-256 payload digest, RFC 8785 payload canonicalization and version-2 EIP-712 domain, while retaining v1 semantics.
