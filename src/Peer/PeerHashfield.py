@@ -178,11 +178,14 @@ class PeerHashfield(object):
 
     def replaceFromProtocol(self, payload):
         """Load v2 when explicitly versioned, otherwise decode the legacy field."""
-        if payload.get("hashfield_version") != self.VERSION:
+        version = payload.get("hashfield_version")
+        if version is None:
             if "hashfield_raw" not in payload:
                 raise ValueError("Missing legacy hashfield payload")
             self.replaceFromBytes(payload["hashfield_raw"])
             return False
+        if version != self.VERSION:
+            raise ValueError("Unsupported hashfield protocol version: %s" % version)
 
         hashfields = payload.get("hashfields")
         if not isinstance(hashfields, dict):
