@@ -146,12 +146,25 @@ class TestPeer:
         try:
             cached.replaceFromProtocol({
                 "hashfield_version": 2,
+                "hashfield_raw": payload["hashfield_raw"],
                 "hashfields": {"sha512": b"\xaa", "blake3": b""}
             })
         except ValueError:
             pass
         else:
             assert False, "Malformed v2 hashfields must be rejected"
+
+        # Explicit unknown algorithm names must not be silently ignored.
+        try:
+            cached.replaceFromProtocol({
+                "hashfield_version": 2,
+                "hashfield_raw": payload["hashfield_raw"],
+                "hashfields": {"sha512": b"", "blake3": b"", "sha3": b""}
+            })
+        except ValueError:
+            pass
+        else:
+            assert False, "Unknown hashfield algorithms must be rejected"
 
     def testHashfieldExchange(self, file_server, site, site_temp):
         server1 = file_server
