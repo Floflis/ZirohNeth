@@ -69,6 +69,41 @@ def manifest_digest(content):
     return blake3.blake3(canonical).digest()
 
 
+def verify_update_chain(previous, current):
+    """Validate a v2 manifest against the locally trusted predecessor.
+
+    Returns an explicit freshness status. First contact can authenticate a
+    signature but cannot establish that the manifest is globally newest.
+    """
+    if previous is None:
+        return "unverified_first_contact"
+
+    previous_digest = manifest_digest(previous)
+    current_digest = manifest_digest(current)
+    if previous_digest == current_digest:
+        # Idempotent verification of the same locally stored manifest.
+        return "locally_continuous"
+
+    previous_sequence = previous.get("sequence", 0)
+    current_sequence = current.get("sequence")
+    if (
+        isinstance(previous_sequence, bool)
+        or not isinstance(previous_sequence, int)
+        or isinstance(current_sequence, bool)
+        or not isinstance(current_sequence, int)
+    ):
+        raise ValueError("Invalid Ethereum update sequence")
+    if current_sequence != previous_sequence + 1:
+        raise ValueError("Ethereum update sequence is not the next local sequence")
+
+    expected_previous = "0x" + previous_digest.hex()
+    supplied_previous = current.get("previous_update_digest")
+    if not isinstance(supplied_previous, str) or supplied_previous.lower() != expected_previous:
+        raise ValueError("Ethereum update does not extend the locally trusted manifest")
+
+    return "locally_continuous"
+
+
 def _typed_message(content):
     address = normalize_address(content["address"])
     previous = content.get("previous_update_digest", ZERO_DIGEST)
