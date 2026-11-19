@@ -236,9 +236,31 @@ class TestPeer:
         assert sorted(res[1234]) == sorted([(file_server.ip_external, 1544), ("1.2.3.5", 1545)])
         assert sorted(res[1235]) == sorted([("1.2.3.5", 1545), ("1.2.3.6", 1546)])
 
-        # Test my address adding
-        site.content_manager.hashfield.append(1234)
+        # A versioned lookup keeps equal prefixes in separate namespaces.
+        blake3_id = PeerHashfield.getHashId("04D2", "blake3")
+        fake_peer_3.hashfield.appendHashId(blake3_id)
+        res = peer_file_server.findHashIds([blake3_id])
+        assert res[blake3_id] == [("1.2.3.6", 1546)]
 
-        res = peer_file_server.findHashIds([1234, 1235])
+        # A pre-v2 requester sends only the 16-bit prefix. The new server
+        # searches both algorithms and projects the matches back to that ID.
+        legacy_res = peer_file_server.request(
+            "findHashIds", {"site": site_temp.address, "hash_ids": [1234]}
+        )
+        assert "hashfield_version" not in legacy_res
+        assert 1234 in legacy_res["peers"]
+        assert len(legacy_res["peers"][1234]) == 3
+
+        # Test my address adding for both namespaces.
+        site.content_manager.hashfield.append(1234)
+        site.content_manager.hashfield.appendHashId(blake3_id)
+
+        res = peer_file_server.findHashIds([1234, 1235, blake3_id])
         assert sorted(res[1234]) == sorted([(file_server.ip_external, 1544), ("1.2.3.5", 1545), (file_server.ip, 1544)])
         assert sorted(res[1235]) == sorted([("1.2.3.5", 1545), ("1.2.3.6", 1546)])
+        assert sorted(res[blake3_id]) == sorted([("1.2.3.6", 1546), (file_server.ip, 1544)])
+
+        legacy_res = peer_file_server.request(
+            "findHashIds", {"site": site_temp.address, "hash_ids": [1234]}
+        )
+        assert 1234 in legacy_res["my"]
