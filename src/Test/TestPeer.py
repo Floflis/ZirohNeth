@@ -101,16 +101,20 @@ class TestPeer:
         assert sha512_id in restored
         assert blake3_id in restored
 
-        # A legacy peer only receives the SHA-512 compatibility field.
+        # A legacy peer receives only an unversioned 16-bit field. The new
+        # client must treat it as an ambiguous availability hint in both
+        # algorithm namespaces because old clients did not distinguish them.
         legacy = PeerHashfield()
         assert not legacy.replaceFromProtocol({"hashfield_raw": payload["hashfield_raw"]})
         assert sha512_id in legacy
-        assert blake3_id not in legacy
+        assert blake3_id in legacy
 
-        # A legacy response must clear any previously cached v2 namespace.
-        restored.replaceFromProtocol({"hashfield_raw": payload["hashfield_raw"]})
-        assert sha512_id in restored
-        assert blake3_id not in restored
+        # A legacy local cache has no way to represent BLAKE3 separately.
+        # ContentManager rebuilds such mixed caches from verified local files.
+        legacy_cache = PeerHashfield()
+        legacy_cache.replaceFromBytes(payload["hashfield_raw"])
+        assert sha512_id in legacy_cache
+        assert blake3_id not in legacy_cache
 
         # The persisted cache keeps both algorithm namespaces.
         restored.replaceFromProtocol(payload)
@@ -134,7 +138,7 @@ class TestPeer:
         try:
             cached.replaceFromProtocol({
                 "hashfield_version": 2,
-                "hashfields": {"sha512": b"\\xaa", "blake3": b""}
+                "hashfields": {"sha512": b"\xaa", "blake3": b""}
             })
         except ValueError:
             pass
