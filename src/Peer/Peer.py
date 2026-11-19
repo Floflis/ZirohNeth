@@ -347,7 +347,10 @@ class Peer(object):
         if not res or "error" in res or type(res) is not dict:
             return False
 
-        is_v2_response = res.get("hashfield_version") == PeerHashfield.VERSION
+        response_version = res.get("hashfield_version")
+        if response_version not in (None, PeerHashfield.VERSION):
+            return False  # Do not silently reinterpret an unknown explicit version as legacy
+        is_v2_response = response_version == PeerHashfield.VERSION
         back = collections.defaultdict(list)
 
         def add_result(hash_id, peers):
