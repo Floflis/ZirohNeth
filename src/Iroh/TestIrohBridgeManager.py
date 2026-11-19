@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ..Iroh.IrohBridgeManager import IrohBridgeManager
+from .IrohBridgeManager import IrohBridgeManager
 
 
 class TestIrohBridgeManager(unittest.TestCase):
