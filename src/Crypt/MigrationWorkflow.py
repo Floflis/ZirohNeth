@@ -174,12 +174,19 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
     # Reuse a destination only when its signed manifest binds this exact proof.
     if existing_path.is_file():
         existing = new_site.storage.loadJson("content.json")
-        if (
+        existing_matches = (
             existing.get("address") == new_identity
             and int(existing.get("content_version", 1)) == 2
             and existing.get("migration") == expected_migration
-            and new_site.content_manager.verifyFile("content.json", existing, ignore_same=False)
-        ):
+        )
+        if not existing_matches:
+            raise MigrationWorkflowError(
+                "The Ethereum destination already contains a different or invalid site"
+            )
+
+        if existing.get("signs") or existing.get("sign"):
+            if not new_site.content_manager.verifyFile("content.json", existing, ignore_same=False):
+                raise MigrationWorkflowError("The existing Ethereum destination failed verification")
             new_site.settings["own"] = True
             new_site.settings["serving"] = True
             new_site.saveSettings()
@@ -190,16 +197,9 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
             return new_site
 
         # An unsigned template is resumable only with a matching local journal.
-        if not (
-            _read_migration_journal(marker_path) == journal
-            and existing.get("address") == new_identity
-            and int(existing.get("content_version", 1)) == 2
-            and existing.get("migration") == expected_migration
-            and not existing.get("signs")
-            and not existing.get("sign")
-        ):
+        if _read_migration_journal(marker_path) != journal:
             raise MigrationWorkflowError(
-                "The Ethereum destination already contains a different or invalid site"
+                "The Ethereum destination has an unsigned manifest without a matching migration journal"
             )
     elif any(target_root.iterdir()):
         if _read_migration_journal(marker_path) != journal:
