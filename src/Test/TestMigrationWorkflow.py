@@ -202,3 +202,25 @@ def test_migration_journal_binds_protocol_source_destination_and_proof():
     changed = copy.deepcopy(record)
     changed["migration_sequence"] += 1
     assert _migration_journal(changed) != journal
+
+
+
+def test_migration_skips_missing_optional_legacy_files(tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    manifest = {
+        "files": {},
+        "files_optional": {
+            "optional.bin": {"sha512": "00" * 32, "size": 100}
+        },
+    }
+
+    _copy_manifest_files(
+        _source_site(source),
+        SimpleNamespace(storage=SimpleNamespace(directory=target)),
+        manifest,
+    )
+
+    assert list(target.iterdir()) == []
