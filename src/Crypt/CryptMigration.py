@@ -57,6 +57,7 @@ def _payload(record):
     if protocol == PROTOCOL_V2:
         fields += (
             "final_legacy_manifest_digest_algorithm",
+            "final_legacy_manifest_canonicalization",
             "migration_payload_digest_algorithm",
             "canonicalization",
         )
@@ -69,6 +70,8 @@ def _payload(record):
     if payload["protocol"] == PROTOCOL_V2:
         if payload["final_legacy_manifest_digest_algorithm"] != "sha256":
             raise MigrationError("Unsupported legacy manifest digest algorithm")
+        if payload["final_legacy_manifest_canonicalization"] != "rfc8785":
+            raise MigrationError("Unsupported legacy manifest canonicalization")
         if payload["migration_payload_digest_algorithm"] != "blake3-256":
             raise MigrationError("Unsupported migration payload digest algorithm")
         if payload["canonicalization"] != "rfc8785":
@@ -108,8 +111,12 @@ def legacy_manifest_digest(manifest):
     protected = copy.deepcopy(manifest)
     for field in ("sign", "signs", "migration"):
         protected.pop(field, None)
-    serialized = json.dumps(protected, sort_keys=True)
-    return "0x" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    if manifest.get("migration_protocol") == PROTOCOL_V2:
+        serialized = rfc8785.dumps(protected)
+    else:
+        # Preserve the exact historical v1 digest representation.
+        serialized = json.dumps(protected, sort_keys=True).encode("utf-8")
+    return "0x" + hashlib.sha256(serialized).hexdigest()
 
 
 def verify_final_legacy_manifest(record, manifest):
