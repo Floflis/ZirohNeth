@@ -52,6 +52,7 @@ class Config:
         self.pending_changes = {}
         self.need_restart = False
         self.keys_api_change_allowed = set([
+            "ipfs_mode",
             "tor", "fileserver_port", "language", "tor_use_bridges", "trackers_proxy", "trackers",
             "trackers_file", "open_browser", "log_level", "fileserver_ip_type", "ip_external", "offline",
             "threads_fs_read", "threads_fs_write", "threads_crypt", "threads_db"
@@ -417,6 +418,7 @@ class Config:
         self.parser.add_argument('--offline', help='Disable network communication', action='store_true')
         self.parser.add_argument('--disable-port-check', help='Disable checking port', action='store_true')
         self.parser.add_argument('--dht', help='Use DHT for peer discovery (experimental)', action=argparse.BooleanOptionalAction, default=True)
+        self.parser.add_argument('--ipfs-mode', help='Optional IPFS integration mode: disabled, external Kubo, or managed Kubo (managed is not yet available)', choices=['disabled', 'external', 'managed'], default='disabled')
         self.parser.add_argument('--use-trackers', help="Use classic trackers for peer discovery", action=argparse.BooleanOptionalAction, default=True)
 
         self.parser.add_argument('--disable-udp', help='Disable UDP connections', action='store_true')
