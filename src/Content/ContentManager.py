@@ -966,6 +966,27 @@ class ContentManager:
 
         content_version = int(content.get("content_version", 1))
         if content_version == 2:
+            # A valid EIP-712 signature authenticates an update, not its place
+            # in the locally observed history. Enforce continuity against the
+            # last persisted manifest whenever this client has one.
+            if Path(inner_path) == Path("content.json"):
+                previous = self.contents.get("content.json")
+                if previous:
+                    try:
+                        expected_sequence = int(previous.get("sequence", 0)) + 1
+                        expected_digest = "0x" + CryptEthereum.manifest_digest(previous).hex()
+                        if int(content.get("sequence", -1)) != expected_sequence:
+                            raise VerifyError("Ethereum update sequence is not the next local sequence")
+                        supplied_previous = content.get("previous_update_digest", "")
+                        if supplied_previous.lower() != expected_digest.lower():
+                            raise VerifyError("Ethereum update does not extend the locally trusted manifest")
+                    except (TypeError, ValueError, KeyError) as err:
+                        if isinstance(err, VerifyError):
+                            raise
+                        raise VerifyError("Invalid Ethereum update-chain fields: %s" % err)
+                # On first contact there is no trusted predecessor. Do not
+                # claim freshness; the signed manifest is only authenticated.
+        if content_version == 2:
             if content.get("hash_algorithm") != "blake3-256":
                 raise VerifyError("Unsupported v2 content hash algorithm")
             for file_info in content.get("files", {}).values():
