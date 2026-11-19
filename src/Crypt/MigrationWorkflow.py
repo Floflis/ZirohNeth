@@ -7,6 +7,7 @@ verifying the embedded proof.
 """
 import copy
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -233,6 +234,10 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         ):
             template.pop(field, None)
         template["address"] = new_identity
+        template["content_version"] = 2
+        template["hash_algorithm"] = "blake3-256"
+        template["identity_scheme"] = CryptEthereum.IDENTITY_SCHEME
+        template["signature_scheme"] = CryptEthereum.SIGNATURE_SCHEME
         template["migration"] = expected_migration
         template["files"] = {}
         template.pop("files_optional", None)
