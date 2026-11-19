@@ -182,7 +182,18 @@ class PeerHashfield(object):
         if version is None:
             if "hashfield_raw" not in payload:
                 raise ValueError("Missing legacy hashfield payload")
-            self.replaceFromBytes(payload["hashfield_raw"])
+            # Pre-v2 peers did not identify the algorithm. Some versions
+            # used this same 16-bit table for both SHA-512 and BLAKE3.
+            # Import it as an ambiguous compatibility hint in both buckets;
+            # full digest verification remains mandatory after download.
+            legacy = array.array("H")
+            legacy.frombytes(payload["hashfield_raw"])
+            self.fields = {
+                "sha512": legacy,
+                "blake3": array.array("H", legacy)
+            }
+            self.storage = self.fields["sha512"]
+            self.time_changed = time.time()
             return False
         if version != self.VERSION:
             raise ValueError("Unsupported hashfield protocol version: %s" % version)
