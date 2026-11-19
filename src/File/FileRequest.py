@@ -368,7 +368,7 @@ class FileRequest(object):
 
         peer.time_my_hashfield_sent = time.time()  # Don't send again if not changed
 
-        self.response({"hashfield_raw": site.content_manager.hashfield.tobytes()})
+        self.response(site.content_manager.hashfield.toProtocolPayload())
 
     def findHashIds(self, site, hash_ids, limit=100):
         back = collections.defaultdict(lambda: collections.defaultdict(list))
@@ -421,7 +421,12 @@ class FileRequest(object):
         peer = site.addPeer(self.connection.ip, self.connection.port, return_peer=True, connection=self.connection, source="request")
         if not peer.connection:
             peer.connect(self.connection)
-        peer.hashfield.replaceFromBytes(params["hashfield_raw"])
+        try:
+            peer.hashfield.replaceFromProtocol(params)
+        except (KeyError, TypeError, ValueError) as err:
+            self.response({"error": "Invalid hashfield payload: %s" % err})
+            self.connection.badAction(5)
+            return False
         self.response({"ok": "Updated"})
 
     # Send a simple Pong! answer
