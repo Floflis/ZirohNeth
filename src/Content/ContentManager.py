@@ -3,7 +3,6 @@ import time
 import re
 import os
 import copy
-import base64
 import sys
 from pathlib import Path
 from functools import reduce
