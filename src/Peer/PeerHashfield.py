@@ -127,8 +127,20 @@ class PeerHashfield(object):
         return sum(len(field) for field in self.fields.values())
 
     def tobytes(self):
-        """Return the exact legacy SHA-512-only representation."""
-        return self.fields["sha512"].tobytes()
+        """Return the legacy untyped projection understood by pre-v2 peers.
+
+        Older clients held all digest prefixes in one bucket. Send the union
+        of both algorithm namespaces so they can still discover BLAKE3 files.
+        A v2 receiver ignores this projection in favor of the typed fields.
+        """
+        legacy = array.array("H")
+        seen = set()
+        for algorithm in ("sha512", "blake3"):
+            for prefix in self.fields[algorithm]:
+                if prefix not in seen:
+                    legacy.append(prefix)
+                    seen.add(prefix)
+        return legacy.tobytes()
 
     def frombytes(self, hashfield_raw):
         """Append a legacy SHA-512-only representation."""
@@ -168,6 +180,7 @@ class PeerHashfield(object):
     def toProtocolPayload(self):
         """Return v2 fields plus the SHA-512 field understood by legacy peers."""
         return {
+            # Compatibility union for peers that do not understand v2.
             "hashfield_raw": self.tobytes(),
             "hashfield_version": self.VERSION,
             "hashfields": {
