@@ -142,20 +142,37 @@ class PeerHashfield(object):
                     seen.add(prefix)
         return legacy.tobytes()
 
+    @staticmethod
+    def _decodeLegacyField(hashfield_raw):
+        if not isinstance(hashfield_raw, (bytes, bytearray)) or len(hashfield_raw) % 2:
+            raise ValueError("Legacy hashfield must contain complete 16-bit entries")
+        if len(hashfield_raw) > 0x10000 * 2:
+            raise ValueError("Legacy hashfield exceeds the 16-bit namespace capacity")
+
+        raw_values = array.array("H")
+        raw_values.frombytes(hashfield_raw)
+        values = array.array("H")
+        seen = set()
+        for prefix in raw_values:
+            if prefix not in seen:
+                values.append(prefix)
+                seen.add(prefix)
+        return values
+
     def frombytes(self, hashfield_raw):
-        """Append a legacy SHA-512-only representation."""
-        self.fields["sha512"].frombytes(hashfield_raw)
-        self.time_changed = time.time()
+        """Append untyped legacy prefixes as ambiguous hints in both buckets."""
+        for prefix in self._decodeLegacyField(hashfield_raw):
+            self.appendHashId(prefix)
+            self.appendHashId((self.ALGORITHM_IDS["blake3"] << 16) | prefix)
 
     def replaceFromBytes(self, hashfield_raw):
-        """Replace the peer's legacy-only view and clear newer namespaces."""
-        storage = array.array("H")
-        storage.frombytes(hashfield_raw)
+        """Replace the hashfield with an untyped legacy prefix table."""
+        legacy = self._decodeLegacyField(hashfield_raw)
         self.fields = {
-            "sha512": storage,
-            "blake3": array.array("H")
+            "sha512": legacy,
+            "blake3": array.array("H", legacy)
         }
-        self.storage = storage
+        self.storage = self.fields["sha512"]
         self.time_changed = time.time()
 
     @staticmethod
@@ -205,19 +222,7 @@ class PeerHashfield(object):
             # used this same 16-bit table for both SHA-512 and BLAKE3.
             # Import it as an ambiguous compatibility hint in both buckets;
             # full digest verification remains mandatory after download.
-            legacy_raw = payload["hashfield_raw"]
-            if not isinstance(legacy_raw, (bytes, bytearray)) or len(legacy_raw) % 2:
-                raise ValueError("Legacy hashfield must contain complete 16-bit entries")
-            if len(legacy_raw) > 0x10000 * 2:
-                raise ValueError("Legacy hashfield exceeds the 16-bit namespace capacity")
-            legacy_values = array.array("H")
-            legacy_values.frombytes(legacy_raw)
-            legacy = array.array("H")
-            seen = set()
-            for prefix in legacy_values:
-                if prefix not in seen:
-                    legacy.append(prefix)
-                    seen.add(prefix)
+            legacy = self._decodeLegacyField(payload["hashfield_raw"])
             self.fields = {
                 "sha512": legacy,
                 "blake3": array.array("H", legacy)
@@ -233,7 +238,7 @@ class PeerHashfield(object):
             raise ValueError("Version 2 hashfields must be a mapping")
         unknown_algorithms = set(hashfields) - set(self.ALGORITHM_IDS)
         if unknown_algorithms:
-            raise ValueError("Unknown hashfield algorithms: %s" % sorted(unknown_algorithms))
+            raise ValueError("Unknown hashfield algorithms: %s" % list(unknown_algorithms))
 
         # Decode into temporary buckets before mutating current peer state.
         decoded = {}
@@ -263,7 +268,7 @@ class PeerHashfield(object):
             raise ValueError("Hashfield cache fields must be a mapping")
         unknown_algorithms = set(hashfields) - set(self.ALGORITHM_IDS)
         if unknown_algorithms:
-            raise ValueError("Unknown cached hashfield algorithms: %s" % sorted(unknown_algorithms))
+            raise ValueError("Unknown cached hashfield algorithms: %s" % list(unknown_algorithms))
 
         decoded = {}
         for algorithm in self.ALGORITHM_IDS:
