@@ -135,7 +135,7 @@ def sign_manifest(content, private_key):
         raise ValueError("Ethereum private key does not match manifest address")
     typed_data = encode_typed_data(full_message=_typed_message(content))
     signed = Account.sign_message(typed_data, private_key=bytes.fromhex(key))
-    return signed.signature.hex()
+    return "0x" + signed.signature.hex().removeprefix("0x")
 
 
 def verify_manifest(content, signature, expected_address):
