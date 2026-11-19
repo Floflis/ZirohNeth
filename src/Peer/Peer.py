@@ -320,7 +320,7 @@ class Peer(object):
         if not res or "error" in res or "hashfield_raw" not in res:
             return False
         # Version 2 peers return algorithm buckets. Older peers ignore the
-        # request hint and keep returning the original SHA-512-only payload.
+        # request hint and return their untyped 16-bit prefix table.
         self.hashfield.replaceFromProtocol(res)
 
         return self.hashfield
