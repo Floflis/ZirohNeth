@@ -1,7 +1,14 @@
 import copy
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from eth_account import Account
+
+if "Config" not in sys.modules:
+    config_module = ModuleType("Config")
+    config_module.config = SimpleNamespace(openssl_lib_file=None)
+    sys.modules["Config"] = config_module
 
 from Crypt import CryptBitcoin, CryptMigration
 
