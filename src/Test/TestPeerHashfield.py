@@ -78,7 +78,7 @@ def test_hashfield_algorithm_namespaces():
         cached.replaceFromProtocol({
             "hashfield_version": 2,
             "hashfield_raw": payload["hashfield_raw"],
-            "hashfields": {"sha512": b"\\xaa", "blake3": b""}
+            "hashfields": {"sha512": b"\xaa", "blake3": b""}
         })
     except ValueError:
         pass
