@@ -86,20 +86,23 @@ class TestPeer:
         assert blake3_id == 0x1AABB
         assert field.appendHash("AABB", "sha512")
         assert field.appendHash("AABB", "blake3")
-        assert len(field) == 2
+        assert field.appendHash("CAFE", "blake3")
+        cafe_blake3_id = field.getHashId("CAFE", "blake3")
+        assert len(field) == 3
         assert sha512_id in field
         assert blake3_id in field
 
         payload = field.toProtocolPayload()
         assert payload["hashfield_version"] == 2
         assert payload["hashfields"]["sha512"] == bytes.fromhex("aabb")
-        assert payload["hashfields"]["blake3"] == bytes.fromhex("aabb")
+        assert payload["hashfields"]["blake3"] == bytes.fromhex("aabbcafe")
 
         # A v2 peer restores both buckets without endian ambiguity.
         restored = PeerHashfield()
         assert restored.replaceFromProtocol(payload)
         assert sha512_id in restored
         assert blake3_id in restored
+        assert cafe_blake3_id in restored
 
         # A legacy peer receives only an unversioned 16-bit field. The new
         # client must treat it as an ambiguous availability hint in both
@@ -108,6 +111,9 @@ class TestPeer:
         assert not legacy.replaceFromProtocol({"hashfield_raw": payload["hashfield_raw"]})
         assert sha512_id in legacy
         assert blake3_id in legacy
+        assert cafe_blake3_id in legacy
+        # Its raw compatibility table is the union of both namespaces.
+        assert field.getHashId("CAFE", "sha512") in legacy
 
         # A legacy local cache has no way to represent BLAKE3 separately.
         # ContentManager rebuilds such mixed caches from verified local files.
@@ -115,6 +121,7 @@ class TestPeer:
         legacy_cache.replaceFromBytes(payload["hashfield_raw"])
         assert sha512_id in legacy_cache
         assert blake3_id not in legacy_cache
+        assert cafe_blake3_id not in legacy_cache
 
         # The persisted cache keeps both algorithm namespaces.
         restored.replaceFromProtocol(payload)
