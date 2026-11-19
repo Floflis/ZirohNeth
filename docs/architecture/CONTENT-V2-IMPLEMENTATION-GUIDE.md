@@ -61,7 +61,7 @@ The migration is authorized by a Bitcoin signature and accepted by the destinati
 
 Migration copies only root-manifest files. Before re-signing, the staged copy is checked against the legacy SHA-512-truncated-256 digest and declared size. The import uses a sibling staging directory and a local journal bound to the source identity, destination identity, terminal legacy manifest digest and migration proof digest. A matching interrupted stage can be rebuilt/resumed; an unrelated or unrecognized destination is rejected. These paths still require fault-injection tests before being considered proven crash-safe.
 
-The migration protocol currently has a fixed SHA-256 legacy-manifest digest field whose algorithm is implicit in protocol v1. Do not change its meaning in place. An explicit digest-algorithm field requires a separately versioned migration protocol.
+New migrations use protocol v2, which explicitly signs the legacy-manifest digest algorithm (SHA-256), migration-payload digest algorithm (BLAKE3-256) and canonicalization (RFC 8785), with a version-2 EIP-712 domain. The verifier retains protocol-v1 support with its historical implicit SHA-256 semantics. Never reinterpret v1 fields in place.
 
 Manifests containing `includes` or `user_contents` remain unsupported by the current migration workflow and are rejected during preflight. Do not flatten these structures: their signer and authorization boundaries need a separate migration design.
 
