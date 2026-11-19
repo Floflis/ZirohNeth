@@ -12,7 +12,8 @@ Code changes have been started for legacy-file pre-verification, staged migratio
 - [ ] Add v2 update-chain tests for valid sequential updates, replay, rollback, skipped sequence, same-sequence fork and restart persistence.
 - [ ] Define first-contact freshness witnesses or quorum/transparency policy. A valid signature alone does not prove freshness; current clients must surface this limitation.
 - [ ] Version peer hashfield encoding with digest-algorithm namespaces while preserving legacy peer interoperability. Do not reinterpret the existing 16-bit wire format.
-- [ ] Version migration digest fields explicitly in a new migration protocol revision, including canonicalization, encoding, truncation and domain separation. Do not mutate v1 migration semantics.
+- [x] Add migration protocol v2 with explicit SHA-256 legacy digest, BLAKE3-256 payload digest, RFC 8785 canonicalization and a version-2 EIP-712 domain; retain the v1 verifier without changing v1 semantics.
+- [ ] Add v1/v2 migration golden vectors and cross-implementation signature/digest tests.
 - [x] Validate clean-environment pip install -r requirements.txt and compileall on Python 3.11 (GitHub Actions runs 1 and 2 passed).
 - [ ] Verify the full supported-Python version matrix; only Python 3.11 is covered by the current dependency workflow.
 - [ ] Keep includes/user_contents migration fail-closed; document preflight behavior and design a trust-preserving migration format before supporting them.
