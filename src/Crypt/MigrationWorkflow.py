@@ -206,6 +206,9 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
             raise MigrationWorkflowError(
                 "The Ethereum destination directory is not empty and has no matching migration journal"
             )
+        raise MigrationWorkflowError(
+            "Migration journal exists but its promoted content.json is missing"
+        )
 
     # Build in a sibling directory so a crash during copy cannot leave a
     # half-populated destination. A retry discards only a stage bound to this
