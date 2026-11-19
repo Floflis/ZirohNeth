@@ -66,27 +66,23 @@ class ContentManager:
             self.loadContent(add_bad_files=False, delete_removed_files=False)
         self.site.settings["size"], self.site.settings["size_optional"] = self.getTotalSize()
 
-        # Load the versioned cache when available. Old caches have no
-        # algorithm namespace, so they are only safe when every optional
-        # digest is legacy SHA-512.
+        # Load the versioned cache when available. A pre-v2 cache has no
+        # algorithm namespace, so even a seemingly SHA-512-only manifest cannot
+        # prove that old cached prefixes were not produced by BLAKE3.
         cache = self.site.settings.get("cache", {})
         if "hashfield_v2" in cache:
-            self.hashfield.replaceFromCache(cache["hashfield_v2"])
+            try:
+                self.hashfield.replaceFromCache(cache["hashfield_v2"])
+            except (TypeError, ValueError) as err:
+                self.log.warning("Ignoring invalid hashfield v2 cache: %s" % err)
+                self.site.storage.updateBadFiles(quick_check=False)
             del cache["hashfield_v2"]
             cache.pop("hashfield", None)
         elif "hashfield" in cache:
-            has_blake3_optional = any(
-                "blake3" in file_info
-                for content in self.contents.values()
-                for file_info in content.get("files_optional", {}).values()
-            )
-            if has_blake3_optional:
-                # An old mixed cache cannot tell which algorithm owned an ID.
-                # Rebuild from verified local files rather than guessing.
-                self.site.storage.updateBadFiles(quick_check=False)
-            else:
-                self.hashfield.replaceFromBytes(base64.b64decode(cache["hashfield"]))
+            # Rebuild from locally present, verified optional files instead of
+            # guessing which algorithm owns each legacy 16-bit prefix.
             del cache["hashfield"]
+            self.site.storage.updateBadFiles(quick_check=False)
         elif self.contents.get("content.json") and self.site.settings["size_optional"] > 0:
             self.site.storage.updateBadFiles()  # No hashfield cache created yet
         self.has_optional_files = bool(self.hashfield)
