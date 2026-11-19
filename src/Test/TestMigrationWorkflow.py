@@ -12,7 +12,7 @@ import pytest
 # the inert config object required at module import time.
 if "Config" not in sys.modules:
     config_module = ModuleType("Config")
-    config_module.config = SimpleNamespace()
+    config_module.config = SimpleNamespace(openssl_lib_file=None)
     sys.modules["Config"] = config_module
 
 from eth_account import Account
