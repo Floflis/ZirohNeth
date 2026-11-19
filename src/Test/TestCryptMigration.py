@@ -122,6 +122,7 @@ def _signed_v2():
         "new_identity": ethereum.address,
         "final_legacy_manifest_digest": "0x" + ("22" * 32),
         "final_legacy_manifest_digest_algorithm": "sha256",
+        "final_legacy_manifest_canonicalization": "rfc8785",
         "migration_payload_digest_algorithm": "blake3-256",
         "canonicalization": "rfc8785",
         "final_legacy_sequence": 77,
@@ -135,11 +136,13 @@ def test_migration_protocol_v2_round_trip_and_explicit_digest_suite():
     record = _signed_v2()
     assert CryptMigration.verify_migration(record)
     assert record["final_legacy_manifest_digest_algorithm"] == "sha256"
+    assert record["final_legacy_manifest_canonicalization"] == "rfc8785"
     assert record["migration_payload_digest_algorithm"] == "blake3-256"
     assert record["canonicalization"] == "rfc8785"
 
     for field, invalid in (
         ("final_legacy_manifest_digest_algorithm", "sha512"),
+        ("final_legacy_manifest_canonicalization", "json-sort-keys"),
         ("migration_payload_digest_algorithm", "sha256"),
         ("canonicalization", "json-sort-keys"),
     ):
