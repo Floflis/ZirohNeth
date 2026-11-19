@@ -327,6 +327,7 @@ def commit_migration(
         checkpoint_store.trust_checkpoint(record, expected_digest)
 
     site.settings["migration_role"] = "historical"
+    site.settings["migration_state"] = "migration_verified"
     site.settings["migration_target"] = record["new_identity"]
     site.settings["migration_checkpoint"] = expected_digest
     site.settings["serving"] = True
