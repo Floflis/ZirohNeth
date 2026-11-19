@@ -5,7 +5,7 @@ import time
 
 
 class PeerHashfield(object):
-    """Algorithm-aware availability hints with a legacy SHA-512 view.
+    """Algorithm-aware availability hints with an untyped legacy projection.
 
     The legacy wire format remains an array of native-endian unsigned 16-bit
     values. Version 2 uses explicit algorithm namespaces and big-endian values.
@@ -182,7 +182,7 @@ class PeerHashfield(object):
         return storage
 
     def toProtocolPayload(self):
-        """Return v2 fields plus the SHA-512 field understood by legacy peers."""
+        """Return v2 fields plus the untyped prefix union understood by legacy peers."""
         return {
             # Compatibility union for peers that do not understand v2.
             "hashfield_raw": self.tobytes(),
