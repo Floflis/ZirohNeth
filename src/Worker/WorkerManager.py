@@ -87,7 +87,7 @@ class WorkerManager(object):
                     if not announced and task["site"].isAddedRecently():
                         task["site"].announce(mode="more")  # Find more peers
                         announced = True
-                    if task["optional_hash_id"]:
+                    if task["optional_hash_id"] is not None:
                         if self.workers:
                             if not task["time_started"]:
                                 ask_limit = 20
@@ -122,7 +122,7 @@ class WorkerManager(object):
                 continue  # This peer not allowed to pick this task
             if peer in task["failed"]:
                 continue  # Peer already tried to solve this, but failed
-            if task["optional_hash_id"] and task["peers"] is None:
+            if task["optional_hash_id"] is not None and task["peers"] is None:
                 continue  # No peers found yet for the optional task
             if task["done"]:
                 continue
@@ -283,7 +283,7 @@ class WorkerManager(object):
         else:
             time.sleep(0.5)
 
-        optional_tasks = [task for task in self.tasks if task["optional_hash_id"]]
+        optional_tasks = [task for task in self.tasks if task["optional_hash_id"] is not None]
         if not optional_tasks:
             return False
         optional_hash_ids = set([task["optional_hash_id"] for task in optional_tasks])
@@ -312,7 +312,7 @@ class WorkerManager(object):
             gevent.joinall(threads, timeout=5)
 
             if time_tasks != self.time_task_added:  # New task added since start
-                optional_tasks = [task for task in self.tasks if task["optional_hash_id"]]
+                optional_tasks = [task for task in self.tasks if task["optional_hash_id"] is not None]
                 optional_hash_ids = set([task["optional_hash_id"] for task in optional_tasks])
 
             found = self.findOptionalTasks(optional_tasks)
@@ -372,7 +372,7 @@ class WorkerManager(object):
             # Try to query random peers
 
             if time_tasks != self.time_task_added:  # New task added since start
-                optional_tasks = [task for task in self.tasks if task["optional_hash_id"]]
+                optional_tasks = [task for task in self.tasks if task["optional_hash_id"] is not None]
                 optional_hash_ids = set([task["optional_hash_id"] for task in optional_tasks])
 
             threads = []
@@ -427,7 +427,7 @@ class WorkerManager(object):
             del(self.workers[worker.key])
             self.log.debug("Removed worker, workers: %s/%s" % (len(self.workers), self.getMaxWorkers()))
         if len(self.workers) <= self.getMaxWorkers() / 3 and len(self.asked_peers) < 10:
-            optional_task = next((task for task in self.tasks if task["optional_hash_id"]), None)
+            optional_task = next((task for task in self.tasks if task["optional_hash_id"] is not None), None)
             if optional_task:
                 if len(self.workers) == 0:
                     self.startFindOptional(find_more=True)
@@ -481,7 +481,12 @@ class WorkerManager(object):
         if not file_info:
             file_info = self.site.content_manager.getFileInfo(inner_path)
         if file_info and file_info["optional"]:
-            optional_hash_id = helper.toHashId(file_info["sha512"])
+            if "blake3" in file_info:
+                optional_hash_id = self.site.content_manager.hashfield.getHashId(file_info["blake3"], "blake3")
+            elif "sha512" in file_info:
+                optional_hash_id = self.site.content_manager.hashfield.getHashId(file_info["sha512"], "sha512")
+            else:
+                optional_hash_id = None
         else:
             optional_hash_id = None
         if file_info:
@@ -521,7 +526,7 @@ class WorkerManager(object):
 
         self.time_task_added = time.time()
 
-        if optional_hash_id:
+        if optional_hash_id is not None:
             if self.asked_peers:
                 del self.asked_peers[:]  # Reset asked peers
             self.startFindOptional(high_priority=priority > 0)
@@ -574,7 +579,7 @@ class WorkerManager(object):
     def doneTask(self, task):
         task["done"] = True
         self.tasks.remove(task)  # Remove from queue
-        if task["optional_hash_id"]:
+        if task["optional_hash_id"] is not None:
             self.log.debug(
                 "Downloaded optional file in %.3fs, adding to hashfield: %s" %
                 (time.time() - task["time_started"], task["inner_path"])
