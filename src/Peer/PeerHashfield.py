@@ -169,12 +169,16 @@ class PeerHashfield(object):
             raise ValueError("Hashfield %s must be bytes" % algorithm)
         if len(raw) % 2:
             raise ValueError("Hashfield %s has an incomplete 16-bit entry" % algorithm)
+        if len(raw) > 0x10000 * 2:
+            raise ValueError("Hashfield %s exceeds the 16-bit namespace capacity" % algorithm)
 
         storage = array.array("H")
+        seen = set()
         for offset in range(0, len(raw), 2):
             value = struct.unpack(">H", raw[offset:offset + 2])[0]
-            if value not in storage:
+            if value not in seen:
                 storage.append(value)
+                seen.add(value)
         return storage
 
     def toProtocolPayload(self):
@@ -191,6 +195,8 @@ class PeerHashfield(object):
 
     def replaceFromProtocol(self, payload):
         """Load v2 when explicitly versioned, otherwise decode the legacy field."""
+        if not isinstance(payload, dict):
+            raise ValueError("Hashfield protocol payload must be a mapping")
         version = payload.get("hashfield_version")
         if version is None:
             if "hashfield_raw" not in payload:
@@ -199,8 +205,19 @@ class PeerHashfield(object):
             # used this same 16-bit table for both SHA-512 and BLAKE3.
             # Import it as an ambiguous compatibility hint in both buckets;
             # full digest verification remains mandatory after download.
+            legacy_raw = payload["hashfield_raw"]
+            if not isinstance(legacy_raw, (bytes, bytearray)) or len(legacy_raw) % 2:
+                raise ValueError("Legacy hashfield must contain complete 16-bit entries")
+            if len(legacy_raw) > 0x10000 * 2:
+                raise ValueError("Legacy hashfield exceeds the 16-bit namespace capacity")
+            legacy_values = array.array("H")
+            legacy_values.frombytes(legacy_raw)
             legacy = array.array("H")
-            legacy.frombytes(payload["hashfield_raw"])
+            seen = set()
+            for prefix in legacy_values:
+                if prefix not in seen:
+                    legacy.append(prefix)
+                    seen.add(prefix)
             self.fields = {
                 "sha512": legacy,
                 "blake3": array.array("H", legacy)
@@ -244,6 +261,9 @@ class PeerHashfield(object):
         hashfields = cache.get("hashfields")
         if not isinstance(hashfields, dict):
             raise ValueError("Hashfield cache fields must be a mapping")
+        unknown_algorithms = set(hashfields) - set(self.ALGORITHM_IDS)
+        if unknown_algorithms:
+            raise ValueError("Unknown cached hashfield algorithms: %s" % sorted(unknown_algorithms))
 
         decoded = {}
         for algorithm in self.ALGORITHM_IDS:
