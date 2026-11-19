@@ -68,6 +68,7 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
         "new_identity": new_identity,
         "final_legacy_manifest_digest": CryptMigration.legacy_manifest_digest(final_manifest),
         "final_legacy_manifest_digest_algorithm": "sha256",
+        "final_legacy_manifest_canonicalization": "rfc8785",
         "migration_payload_digest_algorithm": "blake3-256",
         "canonicalization": "rfc8785",
         "final_legacy_sequence": final_sequence,
