@@ -316,10 +316,12 @@ class Peer(object):
             return False
 
         self.time_hashfield = time.time()
-        res = self.request("getHashfield", {"site": self.site.address})
+        res = self.request("getHashfield", {"site": self.site.address, "hashfield_version": 2})
         if not res or "error" in res or "hashfield_raw" not in res:
             return False
-        self.hashfield.replaceFromBytes(res["hashfield_raw"])
+        # Version 2 peers return algorithm buckets. Older peers ignore the
+        # request hint and keep returning the original SHA-512-only payload.
+        self.hashfield.replaceFromProtocol(res)
 
         return self.hashfield
 
@@ -361,7 +363,10 @@ class Peer(object):
         if self.time_my_hashfield_sent and self.site.content_manager.hashfield.time_changed <= self.time_my_hashfield_sent:
             return False  # Peer already has the latest hashfield
 
-        res = self.request("setHashfield", {"site": self.site.address, "hashfield_raw": self.site.content_manager.hashfield.tobytes()})
+        params = {"site": self.site.address}
+        params.update(self.site.content_manager.hashfield.toProtocolPayload())
+        # Legacy peers consume hashfield_raw and safely ignore the v2 fields.
+        res = self.request("setHashfield", params)
         if not res or "error" in res:
             return False
         else:
