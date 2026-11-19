@@ -19,7 +19,7 @@ from eth_account import Account
 
 from Crypt import CryptBitcoin, CryptMigration, CryptHash
 from Crypt import MigrationWorkflow
-from Crypt.MigrationWorkflow import _copy_manifest_files, MigrationWorkflowError
+from Crypt.MigrationWorkflow import _copy_manifest_files, _migration_journal, MigrationWorkflowError
 
 
 class _Storage:
@@ -181,3 +181,24 @@ def test_migration_rejects_missing_required_legacy_file(tmp_path):
             SimpleNamespace(storage=SimpleNamespace(directory=target)),
             manifest,
         )
+
+
+
+def test_migration_journal_binds_protocol_source_destination_and_proof():
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
+    ethereum = Account.create()
+    site = _Site(old_identity, bitcoin_key)
+    _manifest, record = MigrationWorkflow.prepare_migration(
+        site, bitcoin_key, "eth:" + ethereum.key.hex()
+    )
+
+    journal = _migration_journal(record)
+    assert journal["protocol"] == CryptMigration.PROTOCOL_V2
+    assert journal["source_identity"] == old_identity
+    assert journal["destination_identity"] == ethereum.address
+    assert journal["proof_digest"] == CryptMigration.record_digest(record)
+
+    changed = copy.deepcopy(record)
+    changed["migration_sequence"] += 1
+    assert _migration_journal(changed) != journal
