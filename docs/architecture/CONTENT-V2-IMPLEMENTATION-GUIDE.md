@@ -2,21 +2,22 @@
 
 ## Status
 
-Content v2 support is being introduced on the feature branch feat/content-v2-blake3-ethereum. This document describes the code currently present in that branch. It is not a release-readiness statement: integration tests, legacy compatibility checks and cross-platform validation remain outstanding.
+Content v2 and the Bitcoin-to-Ethereum dual-signed migration primitives are present in the core. Audit remediation is in progress. This guide describes the protocol boundary and current implementation behavior; it is **not** a release-readiness statement. Unit/integration tests, crash fault-injection, peer interoperability and cross-client browser validation remain outstanding.
 
 ## Version dispatch
 
-- A manifest without content_version is legacy v1.
-- v1 retains the original SHA-512-truncated-256 file digest in the sha512 field and the original Bitcoin message-signature flow.
-- v2 declares content_version: 2, hash_algorithm: blake3-256, identity_scheme: ethereum-eoa-secp256k1 and signature_scheme: ethereum-eip712-v1.
+- A manifest without `content_version` is legacy v1.
+- v1 retains the original SHA-512-truncated-256 file digest in the `sha512` field and the original Bitcoin message-signature flow.
+- v2 declares `content_version: 2`, `hash_algorithm: blake3-256`, `identity_scheme: ethereum-eoa-secp256k1` and `signature_scheme: ethereum-eip712-v1`.
 - Unknown content versions, hash algorithms, identity schemes and signature schemes are rejected.
 
 ## File integrity
 
-CryptHash.blake3sum() calculates the standard BLAKE3 256-bit digest. CryptHash.sha512sum() is intentionally unchanged.
+`CryptHash.blake3sum()` calculates the standard BLAKE3 256-bit digest. `CryptHash.sha512sum()` is intentionally unchanged.
 
-New v2 required-file entries use the blake3 field:
+New v2 required-file entries use the `blake3` field:
 
+```json
 {
   "files": {
     "index.html": {
@@ -25,52 +26,62 @@ New v2 required-file entries use the blake3 field:
     }
   }
 }
+```
 
-The algorithm is selected from the explicit digest field when verifying a file. Existing optional files that are not locally available during a v1-to-v2 signing operation may retain their sha512 digest, tagged with hash_algorithm: sha512-truncated-256. New files hashed for v2 use BLAKE3.
+The algorithm is selected from the explicit digest field when verifying a file. Existing optional files that are not locally available during a v1-to-v2 signing operation may retain their `sha512` digest, tagged with `hash_algorithm: sha512-truncated-256`. New files hashed for v2 use BLAKE3.
 
-The peer hashfield still stores only 16-bit digest prefixes. This is a compact availability hint, not an integrity check. The full file digest is always verified before content is accepted. Algorithm-aware hashfield namespacing remains a follow-up task.
+The peer hashfield still stores only 16-bit digest prefixes and does not identify the digest algorithm. It is a compact availability hint, never an integrity check. Full file digests are verified before content is accepted. Algorithm-namespaced hashfield encoding and mixed-version peer compatibility remain open work.
 
 ## Ethereum identity and signatures
 
-Ethereum identities use secp256k1 EOA keys. Addresses are normalized to EIP-55 form and retain the 0x prefix.
+Ethereum identities use secp256k1 EOA keys. Addresses are normalized to EIP-55 form and retain the `0x` prefix.
 
-To explicitly select Ethereum signing, pass a private key with the eth: prefix followed by a 32-byte hexadecimal key. A bare 64-character hexadecimal key is not reinterpreted and continues through the legacy Bitcoin key parser.
+To explicitly select Ethereum signing, pass a private key with the `eth:` prefix followed by a 32-byte hexadecimal key. A bare 64-character hexadecimal key is not reinterpreted and continues through the legacy Bitcoin key parser.
 
 The v2 manifest declares:
 
-- content_version: 2
-- hash_algorithm: blake3-256
-- identity_scheme: ethereum-eoa-secp256k1
-- signature_scheme: ethereum-eip712-v1
-- sequence: monotonically increasing update number
-- previous_update_digest: BLAKE3-256 digest of the previous protected manifest, or 32 zero bytes for the first update
+- `content_version: 2`
+- `hash_algorithm: blake3-256`
+- `identity_scheme: ethereum-eoa-secp256k1`
+- `signature_scheme: ethereum-eip712-v1`
+- `sequence`: monotonically increasing update number
+- `previous_update_digest`: BLAKE3-256 digest of the previous protected manifest
 
 The protected manifest is serialized with RFC 8785 JSON Canonicalization Scheme. Signature fields are excluded from the protected digest to avoid circular signing. EIP-712 signs the site address, protected-manifest digest, content version, sequence and previous-update digest under the ZirohNeth domain.
 
-The first implementation supports signing only the root content.json manifest with one Ethereum EOA signer. Ethereum sub-manifest signing, multisig and ERC-1271 smart-wallet verification are not implemented.
+When a client has a locally stored predecessor, it enforces the next sequence and exact previous-digest link. A first-contact client has no trusted predecessor: a valid signature authenticates the signer and manifest, but does **not** establish global freshness. The backend exposes this as `freshness_status: unverified_first_contact`. Independent witnesses, transparency or quorum policy are still required to improve first-contact freshness.
+
+The first implementation supports signing only the root `content.json` manifest with one Ethereum EOA signer. Ethereum sub-manifest signing, multisig and ERC-1271 smart-wallet verification are not implemented.
 
 ## Bitcoin compatibility and migration boundary
 
-Legacy Bitcoin sites continue to use the v1 verification path. CryptBitcoin has not been repurposed to parse Ethereum keys or signatures.
+Legacy Bitcoin sites continue to use the v1 verification path. `CryptBitcoin` has not been repurposed to parse Ethereum keys or signatures.
 
-This implementation does not yet prove ownership transfer from a Bitcoin site to an Ethereum identity. A new Ethereum site address is not, by itself, evidence that the owner of a legacy Bitcoin site authorized the move. A dual-signed migration proof, terminal legacy checkpoint and anti-rollback discovery policy are tracked in docs/ToDo.md.
+The migration is authorized by a Bitcoin signature and accepted by the destination Ethereum EOA over the same migration payload. The final Bitcoin root embeds the dual-signed proof and is locally checkpointed. The Ethereum v2 manifest also includes a signed migration relationship containing the source identity and BLAKE3 digest of the exact proof. A pre-existing destination is reusable only when that relationship matches and the v2 manifest verifies.
+
+Migration copies only root-manifest files. Before re-signing, the staged copy is checked against the legacy SHA-512-truncated-256 digest and declared size. The import uses a sibling staging directory and a local journal bound to the source identity, destination identity, terminal legacy manifest digest and migration proof digest. A matching interrupted stage can be rebuilt/resumed; an unrelated or unrecognized destination is rejected. These paths still require fault-injection tests before being considered proven crash-safe.
+
+The migration protocol currently has a fixed SHA-256 legacy-manifest digest field whose algorithm is implicit in protocol v1. Do not change its meaning in place. An explicit digest-algorithm field requires a separately versioned migration protocol.
+
+Manifests containing `includes` or `user_contents` remain unsupported by the current migration workflow and are rejected during preflight. Do not flatten these structures: their signer and authorization boundaries need a separate migration design.
+
+## Transport compatibility
+
+Ethereum-addressed sites do not create per-site Tor hidden services and do not use Tor onion peers. The Tor manager returns no hidden-service address for an Ethereum site, site peer discovery skips onion peers for Ethereum identities, and the connection server rejects onion connections when a site context identifies an Ethereum address.
+
+This is a per-site onion-transport restriction. It does not globally disable the Tor daemon or change Tor behavior for legacy Bitcoin/Base58 sites. Global Tor modes and tracker proxy behavior are separate client-wide settings. Automated clearnet, Tor-enabled and mixed-peer regression tests are still required.
 
 ## Tests and release criteria
 
-TestCryptEthereum.py contains BLAKE3 known vectors, Ethereum address normalization, EIP-712 signature recovery and tamper-detection tests. These tests have been added but have not yet been executed in this environment.
+The cryptographic tests include BLAKE3 known vectors, Ethereum address normalization, EIP-712 signature recovery and tamper detection. A clean Python 3.11 dependency install and source compilation pass in GitHub Actions. These checks do not replace the full test suite.
 
 Before release:
-- Run the complete project test suite.
-- Verify all v1 golden vectors and legacy Bitcoin signatures.
-- Add end-to-end tests for v2 signing and file verification.
-- Test malformed manifests, unknown algorithms, replay and rollback.
-- Verify supported Python versions, operating systems and dependency installation.
 
-Remaining work is tracked in docs/ToDo.md.
+- Run the complete project test suite and all v1 golden vectors.
+- Add migration tests for tampered/missing files, unrelated destination, retry, crash at every phase and journal recovery.
+- Test update-chain replay, rollback, sequence gaps, same-sequence forks and restart persistence.
+- Test first-contact freshness/conflicting migration proofs and mixed-version peer hashfields.
+- Add end-to-end browser-to-backend tests for Ethereum v2 navigation and migration lifecycle.
+- Verify the supported Python and operating-system matrix.
 
-
-## Tor policy for Ethereum-addressed sites
-
-Ethereum-addressed sites (0x identities) do not create per-site Tor hidden services and do not use Tor onion peers. The Tor manager returns no hidden-service address for an Ethereum site, site peer discovery skips onion peers for Ethereum identities, and the connection server rejects onion connections when a site context identifies an Ethereum address.
-
-This is a per-site onion-transport restriction. It does not globally disable the Tor daemon or change Tor behavior for legacy Bitcoin/Base58 sites. Global Tor modes and tracker proxy behavior are separate client-wide settings and remain subject to the follow-up audit in docs/ToDo.md. Automated regression tests are still required.
+Remaining work is tracked in `docs/ToDo.md`.
