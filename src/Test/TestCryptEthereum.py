@@ -65,3 +65,51 @@ def test_eip712_manifest_signature_and_tamper_detection():
 def test_ethereum_private_key_requires_explicit_prefix():
     account = Account.create()
     assert CryptEthereum.private_key_to_address("eth:" + account.key.hex()) == account.address
+
+
+
+def _chain_manifest(sequence=1, previous=CryptEthereum.ZERO_DIGEST, title="site"):
+    account = Account.create()
+    return {
+        "content_version": 2,
+        "hash_algorithm": "blake3-256",
+        "identity_scheme": CryptEthereum.IDENTITY_SCHEME,
+        "signature_scheme": CryptEthereum.SIGNATURE_SCHEME,
+        "address": account.address,
+        "sequence": sequence,
+        "previous_update_digest": previous,
+        "modified": 1794960000 + sequence,
+        "title": title,
+        "files": {},
+    }
+
+
+def test_update_chain_accepts_next_sequence_and_exact_previous_digest():
+    first = _chain_manifest()
+    digest = "0x" + CryptEthereum.manifest_digest(first).hex()
+    second = _chain_manifest(sequence=2, previous=digest, title="updated")
+    assert CryptEthereum.verify_update_chain(first, second) == "locally_continuous"
+
+
+def test_update_chain_rejects_replay_rollback_and_sequence_gap():
+    first = _chain_manifest()
+    digest = "0x" + CryptEthereum.manifest_digest(first).hex()
+    replay = _chain_manifest(sequence=1, previous=digest, title="replay")
+    rollback = _chain_manifest(sequence=0, previous=digest, title="rollback")
+    gap = _chain_manifest(sequence=3, previous=digest, title="gap")
+    for changed in (replay, rollback, gap):
+        with pytest.raises(ValueError):
+            CryptEthereum.verify_update_chain(first, changed)
+
+
+def test_update_chain_rejects_wrong_predecessor_digest():
+    first = _chain_manifest()
+    second = _chain_manifest(sequence=2, previous="0x" + ("11" * 32), title="fork")
+    with pytest.raises(ValueError, match="does not extend"):
+        CryptEthereum.verify_update_chain(first, second)
+
+
+def test_update_chain_marks_first_contact_and_accepts_idempotent_recheck():
+    first = _chain_manifest()
+    assert CryptEthereum.verify_update_chain(None, first) == "unverified_first_contact"
+    assert CryptEthereum.verify_update_chain(first, first) == "locally_continuous"
