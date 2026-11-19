@@ -955,6 +955,7 @@ class ContentManager:
                 if not CryptMigration.verify_final_legacy_manifest(migration_record, content):
                     raise VerifyError("Invalid Bitcoin-to-Ethereum migration proof in content.json")
                 self.site.settings["migration_role"] = "historical"
+                self.site.settings["migration_state"] = "migration_verified"
                 self.site.settings["migration_target"] = migration_record["new_identity"]
                 digest = CryptMigration.record_digest(migration_record)
                 if checkpoint and CryptMigration.record_digest(checkpoint) != digest:
@@ -962,7 +963,10 @@ class ContentManager:
                 if not checkpoint:
                     checkpoint_store.trust_checkpoint(migration_record, digest)
             elif checkpoint:
+                self.site.settings["migration_state"] = "migration_conflict"
                 raise VerifyError("Bitcoin identity is terminal after its Ethereum migration checkpoint")
+            else:
+                self.site.settings["migration_state"] = "not_migrated"
 
         content_version = int(content.get("content_version", 1))
         if content_version == 2:
@@ -1165,7 +1169,11 @@ class ContentManager:
                         raise VerifyError("Invalid Ethereum EIP-712 signature")
                     if inner_path != "content.json" and not self.verifyCert(inner_path, new_content):
                         raise VerifyError("Invalid cert!")
-                    return self.verifyContent(inner_path, new_content)
+                    verified = self.verifyContent(inner_path, new_content)
+                    if inner_path == "content.json":
+                        self.site.settings["content_verification_status"] = "verified"
+                        self.site.settings["content_version"] = 2
+                    return verified
 
                 if signs:  # Legacy Bitcoin signing
                     valid_signers = self.getValidSigners(inner_path, new_content)
@@ -1200,6 +1208,10 @@ class ContentManager:
                     raise VerifyError("Not signed")
 
             except Exception as err:
+                if inner_path == "content.json":
+                    self.site.settings["content_verification_status"] = "invalid"
+                    if "migration" in str(err).lower() or "checkpoint" in str(err).lower():
+                        self.site.settings["migration_state"] = "migration_conflict"
                 self.log.warning("%s: verify sign error: %s" % (inner_path, Debug.formatException(err)))
                 raise err
 
