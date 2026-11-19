@@ -109,28 +109,31 @@ def _copy_manifest_files(source_site, target_site, manifest, target_directory=No
                     continue
                 raise MigrationWorkflowError("Required site file is missing: " + relative_name)
 
-            # Authenticate legacy bytes before the new identity can re-sign them.
-            # v1 file digests use the unchanged SHA-512-truncated-256 verifier.
+            # Verify the staged copy itself, not the source before copying.
+            # This closes the hash-then-copy TOCTOU window: only bytes that
+            # match the signed legacy manifest can enter the v2 signing step.
             file_info = manifest[collection_name][relative_name]
             expected_hash = file_info.get("sha512")
             if not expected_hash:
                 raise MigrationWorkflowError(
                     "Legacy file has no SHA-512 digest: " + relative_name
                 )
-            with source.open("rb") as stream:
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            with target.open("rb") as stream:
                 actual_hash = CryptHash.sha512sum(stream)
                 actual_size = stream.tell()
             if actual_hash != expected_hash:
+                target.unlink(missing_ok=True)
                 raise MigrationWorkflowError(
                     "Legacy file digest mismatch; migration aborted: " + relative_name
                 )
             if file_info.get("size") != actual_size:
+                target.unlink(missing_ok=True)
                 raise MigrationWorkflowError(
                     "Legacy file size mismatch; migration aborted: " + relative_name
                 )
-
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
 
 
 def _migration_journal(record):
@@ -215,10 +218,13 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
     # exact migration and rebuilds it from authenticated source bytes.
     if not existing_path.is_file() and not marker_path.exists():
         if stage_root.exists():
-            if _read_migration_journal(stage_root / marker_name) != journal:
+            stage_journal = _read_migration_journal(stage_root / marker_name)
+            if stage_journal != journal and any(stage_root.iterdir()):
                 raise MigrationWorkflowError(
                     "A different or unrecognized migration staging directory already exists"
                 )
+            # An empty directory can be left by a crash before the journal
+            # write; it contains no user data and is safe to recreate.
             shutil.rmtree(stage_root)
         stage_root.mkdir(parents=True)
         with (stage_root / marker_name).open("w", encoding="utf-8") as stream:
