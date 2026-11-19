@@ -46,7 +46,7 @@ def test_eip712_manifest_signature_and_tamper_detection():
         "hash_algorithm": "blake3-256",
         "identity_scheme": CryptEthereum.IDENTITY_SCHEME,
         "signature_scheme": CryptEthereum.SIGNATURE_SCHEME,
-        "address": account.address,
+        "address": address or account.address,
         "sequence": 1,
         "previous_update_digest": CryptEthereum.ZERO_DIGEST,
         "modified": 1794960000,
@@ -68,8 +68,8 @@ def test_ethereum_private_key_requires_explicit_prefix():
 
 
 
-def _chain_manifest(sequence=1, previous=CryptEthereum.ZERO_DIGEST, title="site"):
-    account = Account.create()
+def _chain_manifest(sequence=1, previous=CryptEthereum.ZERO_DIGEST, title="site", address=None):
+    account = Account.create() if address is None else None
     return {
         "content_version": 2,
         "hash_algorithm": "blake3-256",
@@ -87,16 +87,16 @@ def _chain_manifest(sequence=1, previous=CryptEthereum.ZERO_DIGEST, title="site"
 def test_update_chain_accepts_next_sequence_and_exact_previous_digest():
     first = _chain_manifest()
     digest = "0x" + CryptEthereum.manifest_digest(first).hex()
-    second = _chain_manifest(sequence=2, previous=digest, title="updated")
+    second = _chain_manifest(sequence=2, previous=digest, title="updated", address=first["address"])
     assert CryptEthereum.verify_update_chain(first, second) == "locally_continuous"
 
 
 def test_update_chain_rejects_replay_rollback_and_sequence_gap():
     first = _chain_manifest()
     digest = "0x" + CryptEthereum.manifest_digest(first).hex()
-    replay = _chain_manifest(sequence=1, previous=digest, title="replay")
-    rollback = _chain_manifest(sequence=0, previous=digest, title="rollback")
-    gap = _chain_manifest(sequence=3, previous=digest, title="gap")
+    replay = _chain_manifest(sequence=1, previous=digest, title="replay", address=first["address"])
+    rollback = _chain_manifest(sequence=0, previous=digest, title="rollback", address=first["address"])
+    gap = _chain_manifest(sequence=3, previous=digest, title="gap", address=first["address"])
     for changed in (replay, rollback, gap):
         with pytest.raises(ValueError):
             CryptEthereum.verify_update_chain(first, changed)
@@ -104,7 +104,7 @@ def test_update_chain_rejects_replay_rollback_and_sequence_gap():
 
 def test_update_chain_rejects_wrong_predecessor_digest():
     first = _chain_manifest()
-    second = _chain_manifest(sequence=2, previous="0x" + ("11" * 32), title="fork")
+    second = _chain_manifest(sequence=2, previous="0x" + ("11" * 32), title="fork", address=first["address"])
     with pytest.raises(ValueError, match="does not extend"):
         CryptEthereum.verify_update_chain(first, second)
 
