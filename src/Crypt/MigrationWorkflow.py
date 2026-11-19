@@ -89,10 +89,10 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
     return final_manifest, record
 
 
-def _copy_manifest_files(source_site, target_site, manifest):
-    """Copy only files authorized by the final root manifest."""
+def _copy_manifest_files(source_site, target_site, manifest, target_directory=None):
+    """Verify legacy file bytes, then copy only manifest-authorized files."""
     source_root = source_site.storage.directory.resolve()
-    target_root = target_site.storage.directory.resolve()
+    target_root = Path(target_directory or target_site.storage.directory).resolve()
 
     for collection_name in ("files", "files_optional"):
         for relative_name in manifest.get(collection_name, {}):
@@ -132,20 +132,47 @@ def _copy_manifest_files(source_site, target_site, manifest):
             shutil.copy2(source, target)
 
 
+def _migration_journal(record):
+    """Return the exact identity tuple that authorizes resuming a staged import."""
+    return {
+        "schema": 1,
+        "source_identity": record["old_identity"],
+        "destination_identity": record["new_identity"],
+        "legacy_manifest_digest_algorithm": "sha256",
+        "legacy_manifest_digest": record["final_legacy_manifest_digest"],
+        "proof_digest_algorithm": "blake3-256",
+        "proof_digest": CryptMigration.record_digest(record),
+    }
+
+
+def _read_migration_journal(path):
+    try:
+        with Path(path).open("r", encoding="utf-8") as stream:
+            return json.load(stream)
+    except (OSError, ValueError):
+        return None
+
+
 def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, site_manager):
-    """Import the old site's files and publish a newly signed Ethereum root."""
+    """Stage, verify and promote the Ethereum import with restart recovery."""
     new_identity = record["new_identity"]
     new_site = site_manager.need(new_identity, all_file=False)
+    target_root = new_site.storage.directory.resolve()
     existing_path = new_site.storage.getPath("content.json")
+    marker_name = ".zirohneth-migration-journal.json"
+    marker_path = target_root / marker_name
+    stage_root = target_root.parent / (target_root.name + ".migration-stage")
+    journal = _migration_journal(record)
+    expected_migration = {
+        "protocol": CryptMigration.PROTOCOL,
+        "source_identity": record["old_identity"],
+        "proof_digest_algorithm": "blake3-256",
+        "proof_digest": CryptMigration.record_digest(record),
+    }
 
+    # Reuse a destination only when its signed manifest binds this exact proof.
     if existing_path.is_file():
         existing = new_site.storage.loadJson("content.json")
-        expected_migration = {
-            "protocol": CryptMigration.PROTOCOL,
-            "source_identity": record["old_identity"],
-            "proof_digest_algorithm": "blake3-256",
-            "proof_digest": CryptMigration.record_digest(record),
-        }
         if (
             existing.get("address") == new_identity
             and int(existing.get("content_version", 1)) == 2
@@ -157,40 +184,68 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
             new_site.saveSettings()
             if not new_site.publish(inner_path="content.json"):
                 raise MigrationWorkflowError("Ethereum site manifest could not be published")
+            if marker_path.exists():
+                marker_path.unlink()
             return new_site
-        raise MigrationWorkflowError(
-            "The Ethereum destination already contains a different or invalid site"
-        )
-    if any(new_site.storage.directory.iterdir()):
-        raise MigrationWorkflowError(
-            "The Ethereum destination directory is not empty and has no valid root manifest"
-        )
 
-    _copy_manifest_files(site, new_site, final_manifest)
+        # An unsigned template is resumable only with a matching local journal.
+        if not (
+            _read_migration_journal(marker_path) == journal
+            and existing.get("address") == new_identity
+            and int(existing.get("content_version", 1)) == 2
+            and existing.get("migration") == expected_migration
+            and not existing.get("signs")
+            and not existing.get("sign")
+        ):
+            raise MigrationWorkflowError(
+                "The Ethereum destination already contains a different or invalid site"
+            )
+    elif any(target_root.iterdir()):
+        if _read_migration_journal(marker_path) != journal:
+            raise MigrationWorkflowError(
+                "The Ethereum destination directory is not empty and has no matching migration journal"
+            )
 
-    # Reuse the site's public metadata and file layout, but never carry the
-    # Bitcoin identity, old signature, or migration envelope into content v2.
-    template = copy.deepcopy(final_manifest)
-    for field in (
-        "sign", "signs", "signers", "migration", "migration_status",
-        "migration_protocol", "migration_target", "content_version",
-        "hash_algorithm", "identity_scheme", "signature_scheme",
-        "sequence", "previous_update_digest", "signers_sign",
-    ):
-        template.pop(field, None)
-    template["address"] = new_identity
-    # The v2 manifest itself carries the exact source/proof relationship.
-    # It is included in the EIP-712 protected manifest digest.
-    template["migration"] = {
-        "protocol": CryptMigration.PROTOCOL,
-        "source_identity": record["old_identity"],
-        "proof_digest_algorithm": "blake3-256",
-        "proof_digest": CryptMigration.record_digest(record),
-    }
-    template["files"] = {}
-    template.pop("files_optional", None)
-    new_site.storage.writeJson("content.json", template)
+    # Build in a sibling directory so a crash during copy cannot leave a
+    # half-populated destination. A retry discards only a stage bound to this
+    # exact migration and rebuilds it from authenticated source bytes.
+    if not existing_path.is_file() and not marker_path.exists():
+        if stage_root.exists():
+            if _read_migration_journal(stage_root / marker_name) != journal:
+                raise MigrationWorkflowError(
+                    "A different or unrecognized migration staging directory already exists"
+                )
+            shutil.rmtree(stage_root)
+        stage_root.mkdir(parents=True)
+        with (stage_root / marker_name).open("w", encoding="utf-8") as stream:
+            json.dump(journal, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
 
+        _copy_manifest_files(site, new_site, final_manifest, target_directory=stage_root)
+
+        template = copy.deepcopy(final_manifest)
+        for field in (
+            "sign", "signs", "signers", "migration", "migration_status",
+            "migration_protocol", "migration_target", "content_version",
+            "hash_algorithm", "identity_scheme", "signature_scheme",
+            "sequence", "previous_update_digest", "signers_sign",
+        ):
+            template.pop(field, None)
+        template["address"] = new_identity
+        template["migration"] = expected_migration
+        template["files"] = {}
+        template.pop("files_optional", None)
+        with (stage_root / "content.json").open("w", encoding="utf-8") as stream:
+            json.dump(template, stream, sort_keys=True)
+
+        if target_root.exists():
+            if any(target_root.iterdir()):
+                raise MigrationWorkflowError("Ethereum destination changed during migration")
+            target_root.rmdir()
+        os.replace(stage_root, target_root)
+
+    # Keep the local journal until the signed destination has been published.
     new_site.content_manager.sign(
         "content.json",
         privatekey=_ethereum_key(ethereum_private_key),
@@ -198,15 +253,19 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         remove_missing_optional=True,
     )
     imported = new_site.storage.loadJson("content.json")
-    if not new_site.content_manager.verifyFile("content.json", imported, ignore_same=False):
+    if (
+        imported.get("migration") != expected_migration
+        or not new_site.content_manager.verifyFile("content.json", imported, ignore_same=False)
+    ):
         raise MigrationWorkflowError("The new Ethereum manifest failed local verification")
 
-    # The new identity is now a normal v2 site. Mark it as locally owned.
     new_site.settings["own"] = True
     new_site.settings["serving"] = True
     new_site.saveSettings()
     if not new_site.publish(inner_path="content.json"):
         raise MigrationWorkflowError("Ethereum site manifest could not be published")
+    if marker_path.exists():
+        marker_path.unlink()
     return new_site
 
 
