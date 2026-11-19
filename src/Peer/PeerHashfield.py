@@ -136,10 +136,13 @@ class PeerHashfield(object):
         self.time_changed = time.time()
 
     def replaceFromBytes(self, hashfield_raw):
-        """Replace only the legacy SHA-512 bucket."""
+        """Replace the peer's legacy-only view and clear newer namespaces."""
         storage = array.array("H")
         storage.frombytes(hashfield_raw)
-        self.fields["sha512"] = storage
+        self.fields = {
+            "sha512": storage,
+            "blake3": array.array("H")
+        }
         self.storage = storage
         self.time_changed = time.time()
 
