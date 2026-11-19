@@ -1224,6 +1224,8 @@ class ContentManager:
                     self.site.settings["content_verification_status"] = "invalid"
                     if "migration" in str(err).lower() or "checkpoint" in str(err).lower():
                         self.site.settings["migration_state"] = "migration_conflict"
+                    else:
+                        self.site.settings["migration_state"] = "verification_unavailable"
                 self.log.warning("%s: verify sign error: %s" % (inner_path, Debug.formatException(err)))
                 raise err
 
