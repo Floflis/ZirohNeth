@@ -1201,7 +1201,11 @@ class ContentManager:
                         # to validate the embedded final Bitcoin manifest.
                         verified_content = dict(new_content)
                         verified_content["signs"] = signs
-                        return self.verifyContent(inner_path, verified_content)
+                        verified = self.verifyContent(inner_path, verified_content)
+                        if inner_path == "content.json":
+                            self.site.settings["content_verification_status"] = "verified"
+                            self.site.settings["content_version"] = 1
+                        return verified
                 elif sign:
                     raise VerifyError("Invalid old-style sign")
                 else:
