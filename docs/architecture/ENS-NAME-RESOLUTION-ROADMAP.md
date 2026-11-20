@@ -109,6 +109,26 @@ The client must fail closed when required validity fields are absent or inconsis
 - Name resolution does not replace Content v2 EIP-712 signature verification or file-integrity checks.
 - No IPFS fallback, local Ethereum node, or background ENS watcher is part of this roadmap.
 
+## 🌈 Central signer and trust assumptions
+
+The ZeroName registry is a signed published index, not the ENS registry itself. In the historical ZeroName pipeline, a trusted operator's updater reads Namecoin state and updates the registry, then signs and publishes it using the ZeroName site's private key. Peers can distribute and mirror the signed site, but that does not decentralize the authority to produce an accepted registry revision.
+
+ZirohNeth must therefore distinguish:
+
+- **ENS on Ethereum:** authoritative registration, resolver, address, and expiration state.
+- **ZeroName signed registry:** a publisher-authorized snapshot of ENS-to-site mappings.
+- **ZirohNeth resolver:** a consumer of that snapshot, not an independent proof that the signer verified ENS correctly.
+- **Content v2 verification:** authenticates the destination site manifest/content under its Ethereum identity; it does not prove the ENS name currently belongs to that address.
+
+Security consequences:
+
+- A valid ZeroName site signature proves the registry snapshot was signed by the configured ZeroName publisher. It does not, by itself, prove the ENS data is true, fresh, or unexpired.
+- A compromised publisher key could authorize a malicious mapping. The resolver must still enforce published expiry/status, and diagnostics should expose signer and verification metadata.
+- Keep name resolution separate from Content v2 EIP-712 manifest verification. A syntactically valid `0x` address is not sufficient authentication.
+- The client should make the trust model explicit in documentation: P2P replication improves availability of the signed snapshot, not decentralization of its write authority.
+
+A future track may add independently verifiable ENS evidence, independent verifier attestations, transparency logs, or multi-party publication authorization. Do not claim those protections until implemented and tested.
+
 ## 🌈 Delivery rule
 
 The two repositories must agree on the record schema, status vocabulary, expiry semantics, and cache policy before implementation is considered complete. Keep implementation changes in focused PRs, with tests and explicit documentation for unsupported cases.
