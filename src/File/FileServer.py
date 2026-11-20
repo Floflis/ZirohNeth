@@ -97,19 +97,19 @@ class FileServer(ConnectionServer):
     def isIpv6Supported(self):
         if config.tor == "always":
             return True
-        # Test if we can connect to ipv6 address
-        ipv6_testip = "fcec:ae97:8902:d810:6c92:ec67:efb2:3ec5"
+        # Test the local IPv6 socket stack, not reachability of one specific
+        # CJDNS host. A Yggdrasil-only machine must be detected too; actual
+        # overlay routes and source addresses are discovered separately by
+        # helper.getInterfaceIps().
         try:
-            sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-            sock.connect((ipv6_testip, 80))
-            local_ipv6 = sock.getsockname()[0]
-            if local_ipv6 == "::1":
-                self.log.debug("IPv6 not supported, no local IPv6 address")
-                return False
-            else:
-                self.log.debug("IPv6 supported on IP %s" % local_ipv6)
-                return True
-        except socket.error as err:
+            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            try:
+                sock.bind(("::", 0))
+            finally:
+                sock.close()
+            self.log.debug("IPv6 socket support is available")
+            return True
+        except OSError as err:
             self.log.warning("IPv6 not supported: %s" % err)
             return False
         except Exception as err:

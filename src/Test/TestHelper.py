@@ -63,7 +63,22 @@ class TestHelper:
         assert helper.isPrivateIp("192.168.1.1")
         assert not helper.isPrivateIp("1.1.1.1")
         assert helper.isPrivateIp("fe80::44f0:3d0:4e6:637c")
-        assert not helper.isPrivateIp("fca5:95d6:bfde:d902:8951:276e:1111:a22c")  # cjdns
+        # Overlay addresses are not local-interface addresses for ZeroNet's
+        # reachability heuristic: peers on the same mesh can route to them.
+        assert not helper.isPrivateIp("fca5:95d6:bfde:d902:8951:276e:1111:a22c")  # CJDNS
+        assert not helper.isPrivateIp("200:1234:5678:9abc::1")  # Yggdrasil
+
+    def testIsMeshIp(self):
+        assert helper.isMeshIp("fcab:95d6:bfde:d902:8951:276e:1111:a22c")
+        assert helper.isMeshIp("200:1234:5678:9abc::1")
+        assert helper.isMeshIp("300:1234:5678:9abc::1")  # Yggdrasil routed prefix
+        assert not helper.isMeshIp("2001:db8::1")
+        assert not helper.isMeshIp("fd12:3456:789a::1")
+        assert not helper.isMeshIp("192.0.2.1")
+
+    def testIpv6RouteProbesIncludeCjdnsAndYggdrasil(self):
+        assert "fc00::1" in helper.IPV6_ROUTE_TEST_IPS
+        assert "200::1" in helper.IPV6_ROUTE_TEST_IPS
 
     def testOpenLocked(self):
         locked_f = helper.openLocked(config.data_dir + "/locked.file")
