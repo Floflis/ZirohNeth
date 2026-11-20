@@ -8,7 +8,7 @@ This work adapts the ZirohNeth client to consume `.eth` mappings published by th
 
 A `.eth` name resolves to an Ethereum `0x` site identity. It does not resolve to an IPFS CID, IPFS gateway, or ENS content hash.
 
-The companion server-side roadmap is maintained in [Floflis/ZeroName](https://github.com/Floflis/ZeroName/blob/master/docs/ETH-NAME-RESOLUTION-ROADMAP.md).
+The companion server-side roadmap is maintained in [Floflis/ZeroName](https://github.com/Floflis/ZeroName/pull/1).
 
 ## 🌈 Goals
 
