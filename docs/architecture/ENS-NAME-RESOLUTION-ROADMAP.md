@@ -111,7 +111,13 @@ The client must fail closed when required validity fields are absent or inconsis
 
 ## 🌈 Central signer and trust assumptions
 
-The ZeroName registry is a signed published index, not the ENS registry itself. In the historical ZeroName pipeline, a trusted operator's updater reads Namecoin state and updates the registry, then signs and publishes it using the ZeroName site's private key. Peers can distribute and mirror the signed site, but that does not decentralize the authority to produce an accepted registry revision.
+The historical ZeroName implementation had two different components that must not be conflated:
+
+- The client-side `SiteManagerPlugin.py` obtained the configured ZeroName site through `--bit_resolver` and loaded its `data/names.json`. It did not run Namecoin RPC, update the registry, or sign the site.
+- The operator-side `zeroname_updater.py` ran separately with access to Namecoin RPC, the local ZeroName site files, and the site's private signing key. It processed Namecoin blocks, updated `data/names.json`, and automatically invoked `siteSign --publish` when a change was detected.
+- The historical README allowed operators to create their own ZeroName sites and run their own updaters. The software therefore did not mandate one exclusive global operator. However, each client trusted the resolver configured in `--bit_resolver`; clients sharing the public default shared that publisher trust point.
+
+The ZeroName registry is a signed published index, not the ENS registry itself. Peers can distribute and mirror the signed site, but replication does not decentralize the authority to produce an accepted registry revision.
 
 ZirohNeth must therefore distinguish:
 
@@ -126,8 +132,17 @@ Security consequences:
 - A compromised publisher key could authorize a malicious mapping. The resolver must still enforce published expiry/status, and diagnostics should expose signer and verification metadata.
 - Keep name resolution separate from Content v2 EIP-712 manifest verification. A syntactically valid `0x` address is not sufficient authentication.
 - The client should make the trust model explicit in documentation: P2P replication improves availability of the signed snapshot, not decentralization of its write authority.
+- ZirohNeth's client resolver consumes the configured ZeroName registry; it must not require ordinary users to run the Namecoin updater or possess the ZeroName publisher's private key.
 
 A future track may add independently verifiable ENS evidence, independent verifier attestations, transparency logs, or multi-party publication authorization. Do not claim those protections until implemented and tested.
+
+### 🌈 Historical implementation references
+
+These upstream references describe the historical ZeroName components being audited; verify the current fork separately:
+
+- [ZeroName plugin README](https://github.com/HelloZeroNet/ZeroNet/blob/py3/plugins/Zeroname/README.md)
+- [Namecoin updater](https://github.com/HelloZeroNet/ZeroNet/blob/py3/plugins/Zeroname/updater/zeroname_updater.py)
+- [Client SiteManager plugin](https://github.com/HelloZeroNet/ZeroNet/blob/py3/plugins/Zeroname/SiteManagerPlugin.py)
 
 ## 🌈 Delivery rule
 
