@@ -312,12 +312,16 @@ def getInterfaceIps(ip_type="ipv4"):
         test_ips = ['239.255.255.250', "8.8.8.8"]
 
     for test_ip in test_ips:
+        s = None
         try:
             s = createSocket(test_ip, sock_type=socket.SOCK_DGRAM)
             s.connect((test_ip, 1))
             res.append(s.getsockname()[0])
         except Exception:
             pass
+        finally:
+            if s:
+                s.close()
 
     try:
         res += [ip[4][0] for ip in socket.getaddrinfo(socket.gethostname(), 1)]
