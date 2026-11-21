@@ -98,6 +98,17 @@ class SiteManager(object):
                         del content_db.sites[address]
 
         self.loaded = True
+        # A downloaded v2 site may contain a Bitcoin-authorized compatibility
+        # manifest. Materialize its historical address only after verifying it.
+        for site in list(self.sites.values()):
+            try:
+                self.registerMigrationCompatibility(site)
+            except Exception as err:
+                self.log.warning(
+                    "Unable to register migration compatibility for %s: %s",
+                    site.address, err
+                )
+
         for address, settings in sites_need:
             gevent.spawn(self.need, address, settings=settings)
         if added:
@@ -207,6 +218,125 @@ class SiteManager(object):
         except Exception as err:
             self.log.debug("Unable to resolve migration for %s: %s", address, err)
             return address
+
+    def registerMigrationCompatibility(self, site):
+        """Expose a verified terminal v1 manifest under its historical address.
+
+        The compatibility file is required and BLAKE3-authenticated by the v2
+        root; its embedded migration record and Bitcoin signature are then
+        checked independently before the old-address alias is advertised.
+        """
+        from .Site import Site
+        from Crypt import CryptMigration
+
+        try:
+            root = site.content_manager.contents.get("content.json")
+            if not isinstance(root, dict):
+                if not site.storage.isFile("content.json"):
+                    return False
+                root = site.storage.loadJson("content.json")
+            if int(root.get("content_version", 1)) != 2:
+                return False
+
+            descriptor = root.get("migration_compatibility")
+            if not isinstance(descriptor, dict):
+                return False
+            if descriptor.get("inner_path") != CryptMigration.COMPATIBILITY_MANIFEST_PATH:
+                raise ValueError("Unsupported migration compatibility path")
+
+            compatibility_path = site.storage.getPath(CryptMigration.COMPATIBILITY_MANIFEST_PATH)
+            if not compatibility_path.is_file():
+                return False
+            with compatibility_path.open("r", encoding="utf-8") as stream:
+                legacy_manifest = json.load(stream)
+
+            if not CryptMigration.verify_compatibility_manifest(root, legacy_manifest, site.address):
+                raise ValueError("Compatibility manifest failed v2/Bitcoin proof validation")
+
+            record = legacy_manifest["migration"]
+            old_address = record["old_identity"]
+            expected_digest = CryptMigration.record_digest(record)
+            checkpoint_path = config.data_dir / "migration-checkpoints" / (old_address + ".json")
+            checkpoint_store = CryptMigration.CheckpointStore(checkpoint_path)
+            checkpoint = checkpoint_store.latest()
+            if checkpoint and CryptMigration.record_digest(checkpoint) != expected_digest:
+                raise ValueError("Compatibility manifest conflicts with the pinned migration checkpoint")
+
+            legacy_directory = config.data_dir / old_address
+            legacy_manifest_path = legacy_directory / "content.json"
+            write_legacy_manifest = not legacy_manifest_path.is_file()
+            if not write_legacy_manifest:
+                try:
+                    with legacy_manifest_path.open("r", encoding="utf-8") as stream:
+                        existing_legacy = json.load(stream)
+                except (OSError, ValueError):
+                    existing_legacy = None
+
+                if isinstance(existing_legacy, dict) and existing_legacy.get("migration"):
+                    existing_record = existing_legacy.get("migration")
+                    if (
+                        not CryptMigration.verify_final_legacy_manifest(existing_record, existing_legacy)
+                        or CryptMigration.record_digest(existing_record) != expected_digest
+                    ):
+                        raise ValueError("A different terminal migration manifest is already pinned locally")
+                elif isinstance(existing_legacy, dict):
+                    existing_sequence = existing_legacy.get("sequence", existing_legacy.get("modified", 0))
+                    terminal_sequence = legacy_manifest.get("sequence", legacy_manifest.get("modified", 0))
+                    if existing_legacy.get("address", old_address) != old_address:
+                        raise ValueError("Historical directory contains a manifest for another identity")
+                    if existing_sequence > terminal_sequence or (
+                        existing_sequence == terminal_sequence and existing_legacy != legacy_manifest
+                    ):
+                        raise ValueError("Local legacy manifest is newer or conflicts with the terminal migration")
+
+                    write_legacy_manifest = True
+                else:
+                    write_legacy_manifest = True
+
+            if not checkpoint:
+                checkpoint_store.trust_checkpoint(record, expected_digest)
+
+            if write_legacy_manifest:
+                legacy_directory.mkdir(parents=True, exist_ok=True)
+                helper.atomicWrite(
+                    legacy_manifest_path,
+                    json.dumps(legacy_manifest, sort_keys=True, ensure_ascii=False).encode("utf-8")
+                )
+
+            alias_settings = {
+                "own": False,
+                "serving": True,
+                "permissions": [],
+                "migration_role": "historical",
+                "migration_state": "migration_verified",
+                "migration_target": site.address,
+                "migration_checkpoint": expected_digest,
+                "migration_compatibility_parent": site.address,
+                "migration_compatibility_seed": True,
+            }
+
+            alias_site = self.sites.get(old_address)
+            if alias_site is None:
+                alias_site = Site(old_address, allow_create=False, settings=alias_settings)
+                self.sites[old_address] = alias_site
+            else:
+                alias_site.settings.update(alias_settings)
+                # Refresh an already loaded historical site if its older root
+                # was safely advanced to the verified terminal manifest.
+                if write_legacy_manifest:
+                    alias_site.content_manager.loadContent(
+                        "content.json", load_includes=False, force=True
+                    )
+
+            self.sites_changed = int(time.time())
+            self.saveDelayed()
+            return alias_site
+        except Exception as err:
+            self.log.warning(
+                "Migration compatibility for %s was not advertised: %s",
+                getattr(site, "address", "<unknown>"), err
+            )
+            return False
 
     # Return: Site object or None if not found
     def get(self, address):
