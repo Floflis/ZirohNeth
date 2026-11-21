@@ -252,7 +252,7 @@ def isIp(ip):
             return False
 
 
-local_ip_pattern = re.compile(r"^127\.|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|169\.254\.|::1$|fe80")
+local_ip_pattern = re.compile(r"^127\.|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|169\.254\.|::1$|fe80|^fd[0-9a-f]{2}:")
 def isMeshIp(ip):
     """Return whether an IPv6 address belongs to CJDNS or Yggdrasil."""
     if not isinstance(ip, str):
