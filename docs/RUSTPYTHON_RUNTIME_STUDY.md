@@ -142,3 +142,271 @@ A pragmatic path is to **separate the future Rust engine from the current Python
 - [PyO3 documentation](https://pyo3.rs/)
 - [PyO3 embedding and distribution guide](https://pyo3.rs/main/building-and-distribution.html)
 - [Python documentation: extending and embedding CPython](https://docs.python.org/3/extending/)
+
+
+---
+
+# 🌈 Architecture Addendum: Dual Runtimes, RustPython Lab, and Distribution
+
+**Updated:** 2026-11-21  
+**Status:** Proposed architecture and experimental roadmap. This addendum does not claim that dual-runtime execution, RustPython compatibility, or packaged builds have been implemented or tested.
+
+## 🌈 Architectural decision under evaluation
+
+ZirohNeth may support **CPython and RustPython side by side** during a gradual migration.
+
+- **CPython** remains the compatibility runtime for the existing application and packages that require CPython-specific behavior or native extensions.
+- **RustPython** becomes an integrated, experimental runtime for modules that pass the project's compatibility tests.
+- **Rust-native services** progressively take responsibility for suitable networking, cryptography, serialization, storage, and other core functions.
+
+The long-term goal is not to keep two interpreters forever. It is to make migration incremental, evidence-based, and reversible without blocking current ZirohNeth functionality.
+
+### Runtime assignment is not automatically one process per Python file
+
+A module cannot safely be moved to another interpreter merely because it is a separate `.py` file. Python modules often share objects, import state, global variables, plugin registries, exception classes, callbacks, and assumptions about the same interpreter.
+
+Runtime selection must therefore happen at a **defined execution boundary**:
+
+1. A standalone script or command.
+2. A self-contained worker/service.
+3. A package or plugin group whose imports and state remain inside one interpreter.
+4. A module exposed through an explicit, versioned service interface.
+
+Modules that exchange Python objects or rely on shared interpreter state must remain in the same runtime until that coupling is removed or replaced by a defined protocol.
+
+### Preferred first implementation: separate worker processes
+
+Start with a Rust supervisor/launcher that can start and manage:
+
+- A CPython worker using the pinned, bundled CPython distribution.
+- A RustPython worker using the RustPython VM embedded in a Rust executable, or a separately packaged RustPython executable during early experiments.
+- Rust-native services where a stable interface has been defined.
+
+Use explicit IPC between workers. Suitable initial transports include local sockets or standard input/output with framed messages. JSON is a simple first protocol; MessagePack may be considered after interoperability and schema requirements are established.
+
+Define message envelopes with at least:
+
+- Protocol version.
+- Request/correlation ID.
+- Service or operation name.
+- Typed payload.
+- Structured success or error response.
+
+Do not pass live Python objects, interpreter pointers, or implicit shared-memory assumptions between CPython and RustPython. Convert data at the boundary.
+
+Process separation improves dependency and crash isolation, but it is **not by itself a security sandbox**. If untrusted plugins or scripts are ever executed, apply explicit OS-level permissions, filesystem/network restrictions, resource limits, and a threat model.
+
+Embedding both interpreters in one process can be evaluated later. It introduces additional lifecycle, linking, allocator, global-state, and native-library concerns; it should not be the first milestone.
+
+## 🌈 Runtime manifest
+
+Introduce a manifest to declare the intended runtime and entry point for each independently executable unit. The following is an illustrative format, not a file that has already been added:
+
+```toml
+[modules.bencode]
+runtime = "rustpython"
+entrypoint = "src.lib.bencode_open"
+
+[modules.diff]
+runtime = "rustpython"
+entrypoint = "src.util.Diff"
+
+[modules.safe_re]
+runtime = "rustpython"
+entrypoint = "src.util.SafeRe"
+
+[modules.query_json]
+runtime = "rustpython"
+entrypoint = "src.util.QueryJson"
+
+[modules.rate_limit]
+runtime = "cpython"
+entrypoint = "src.util.RateLimit"
+
+[modules.legacy_plugins]
+runtime = "cpython"
+entrypoint = "src.Plugin.PluginManager"
+```
+
+The manifest must eventually support dependency constraints, runtime version, working directory, environment requirements, health checks, restart policy, and IPC contract version. Runtime assignment must be validated against the import/dependency graph; it must not silently split tightly coupled modules across interpreters.
+
+## 🌈 First RustPython experiments in the current codebase
+
+Begin with small, deterministic modules. The paths below are **candidates for inspection and testing**, not compatibility claims. Before assigning any module to RustPython, record its complete import graph, Python-version assumptions, filesystem/network effects, and transitive dependencies.
+
+| Priority | Candidate | Initial test surface | Main caveat |
+|---:|---|---|---|
+| 1 | `src/lib/bencode_open/__init__.py` | Encode/decode integers, byte strings, lists, dictionaries, malformed and truncated inputs, round-trip behavior | Verify exact Bencode semantics and edge cases against the project's current implementation |
+| 2 | `src/util/Diff.py` | Import, text diff behavior, insert/delete/replace cases | Check `io` and `difflib` behavior |
+| 3 | `src/util/SafeRe.py` | Regex compilation, matching, caching, invalid patterns | Verify `re` semantics and any security/time-complexity expectations |
+| 4 | `src/util/Flag.py` | Class/decorator behavior and collection semantics | Check `collections` behavior and import-time assumptions |
+| 5 | `src/util/QueryJson.py` | JSON parsing/query behavior and controlled filesystem fixtures | Exercise `json`, path handling, traversal, and permissions |
+| 6 | `src/Crypt/CryptHash.py` | Standard-library hash algorithms, base64, random bytes, path handling | Test optional/native hashing backends separately; do not assume BLAKE3 compatibility |
+
+### Defer until the runtime boundary and dependencies are understood
+
+- `src/util/RateLimit.py`: currently tied to gevent-related scheduling and concurrency.
+- `src/Content/ContentManager.py`: integration-heavy content lifecycle and concurrency behavior.
+- `plugins/Cors/CorsPlugin.py`: plugin and gevent integration.
+- `src/Plugin/PluginManager.py`: dynamic imports, `sys.modules`, reload, class composition, and shared plugin state.
+- `src/main.py`: startup ordering and gevent monkey patching affect the process as a whole.
+
+A successful import is not a pass. A candidate is compatible only after its behavior and integration contract have been tested.
+
+## 🌈 Differential compatibility testing
+
+Create a reusable test harness that runs the same test vectors in separate CPython and RustPython processes and compares normalized results.
+
+For each candidate, test:
+
+1. Import and initialization.
+2. Public API shape and expected exceptions.
+3. Deterministic outputs against shared fixtures.
+4. Edge cases, malformed inputs, and boundary conditions.
+5. Filesystem and platform behavior where relevant.
+6. Integration with its actual ZirohNeth callers.
+7. Linux and Windows behavior.
+8. Repeatability across clean builds and pinned runtime versions.
+
+Classify each module/dependency as:
+
+- `PASS`: required behavior and integration tests pass on the supported targets.
+- `PARTIAL`: some behavior works, but known gaps remain.
+- `BLOCKED`: a required capability currently prevents migration.
+- `UNVERIFIED`: insufficient tests or evidence.
+
+Record runtime version, OS/architecture, test command, commit SHA, and evidence for every status. Do not promote a module based on an import-only smoke test.
+
+## 🌈 RustPython fork and AI-assisted compatibility work
+
+A maintained Floflis fork may be created when the first concrete compatibility gap requires a change in RustPython itself. Possible repository name: `Floflis/RustPython-ZirohNeth`. Confirm naming and repository setup before creating it.
+
+Fork maintenance requirements:
+
+- Track a pinned upstream RustPython revision and document the upstream base commit.
+- Keep Floflis patches small, topic-scoped, and independently reviewable.
+- Prefer upstream contributions for generally useful fixes; keep ZirohNeth-specific integration in separate patches.
+- Document every compatibility behavior and its intended CPython reference behavior.
+- Add regression tests alongside each implementation.
+- Maintain a changelog and an upstream synchronization procedure.
+- Never silently claim complete CPython compatibility.
+
+AI-assisted implementation is appropriate for investigating gaps, drafting implementations, generating test cases, and porting well-specified behavior. It does not replace review or conformance testing.
+
+Choose the implementation layer deliberately:
+
+- Pure-Python standard-library behavior may be implemented in Python when that is the simplest compatible solution.
+- VM, interpreter, or standard-library integration gaps may require Rust changes in RustPython.
+- Platform-specific capabilities may require Rust/native backends.
+- CPython C-API compatibility must be treated as a separate, substantial project; it must not be implied by implementing a similarly named Python module.
+
+For every AI-assisted change, require a reproducible test, source/reference behavior, platform coverage where applicable, and a traceable commit/PR.
+
+## 🌈 Shipping RustPython with ZirohNeth
+
+The intended user experience is that Linux and Windows users receive a ZirohNeth distribution that contains its required runtimes. Users should not need to install Rust, Cargo, or a separate RustPython package merely to run the application.
+
+### Preferred distribution path
+
+**Initial experiment:**
+- Build a small Rust launcher/worker that embeds a pinned RustPython VM.
+- Keep Python source modules and required standard-library resources in a clearly versioned application layout.
+- Alternatively, package a separate RustPython worker executable while the embedding API and startup design are being validated.
+
+**Later distribution:**
+- Embed/freeze the standard library where supported and appropriate.
+- Register ZirohNeth's Rust-native modules through the supported RustPython embedding/module APIs.
+- Produce reproducible, signed or checksum-verified Linux and Windows artifacts.
+- Keep CPython in a separate, pinned portable runtime directory for legacy modules until it is no longer needed.
+
+Illustrative package layout (not an implemented layout):
+
+```text
+ZirohNeth/
+├── bin/
+│   └── zeroneth
+├── runtime/
+│   └── cpython/              # temporary compatibility runtime
+├── python/
+│   └── Lib/                  # resources if not frozen into the binary
+├── plugins/
+├── config/
+└── data/
+```
+
+Windows may use `zeroneth.exe`; Linux may use an ELF executable. Exact runtime files and shared-library requirements must be established by clean-machine packaging tests, not assumed from the build host.
+
+### Linux and Windows build matrix
+
+At minimum, validate:
+- Linux x86_64.
+- Linux aarch64.
+- Windows x86_64.
+
+Additional targets such as Linux musl, Windows ARM64, and other architectures should be added when supported by the RustPython dependency graph and ZirohNeth's native dependencies. Do not describe a target as supported until its CI build and runtime tests pass.
+
+For each target:
+- Build from a pinned Rust toolchain and dependency lockfile.
+- Run RustPython conformance and ZirohNeth module tests.
+- Verify TLS, sockets, filesystem paths, process management, and native module loading as applicable.
+- Test on a clean machine without Rust/Cargo or a system Python installation.
+- Inspect dynamic-library dependencies and licensing notices.
+- Verify upgrade, rollback, logs, configuration, and data-directory behavior.
+
+CPython packaging is a separate concern: use a pinned portable/embeddable distribution appropriate to each OS and verify its native dependencies. Do not assume that a CPython package built for one OS or architecture can be reused on another.
+
+## 🌈 Proposed implementation roadmap
+
+### Phase 0 — Baseline and inventory
+- [ ] Record the current default branch commit and existing runtime behavior.
+- [ ] Inventory direct and transitive imports for the six initial candidates.
+- [ ] Capture CPython reference outputs and existing test coverage.
+- [ ] Record supported OS/architecture targets and current CI coverage.
+
+### Phase 1 — RustPython Lab
+- [ ] Add an isolated RustPython launcher/worker prototype.
+- [ ] Pin the RustPython revision and Rust toolchain.
+- [ ] Run a minimal interpreter smoke test on Linux and Windows.
+- [ ] Execute the first candidate module tests without changing the default runtime.
+- [ ] Publish logs and test evidence.
+
+### Phase 2 — Dual-runtime supervisor
+- [ ] Define a versioned IPC envelope and error model.
+- [ ] Implement worker startup, shutdown, health checks, and structured logs.
+- [ ] Add a runtime manifest and validate module dependency boundaries.
+- [ ] Demonstrate one CPython worker and one RustPython worker in the same ZirohNeth session.
+- [ ] Test worker crash/restart and graceful application shutdown.
+
+### Phase 3 — Compatibility fork
+- [ ] Create a Floflis RustPython fork only when concrete patches are ready to maintain.
+- [ ] Establish upstream tracking and synchronization documentation.
+- [ ] Add differential CPython/RustPython tests.
+- [ ] Implement missing capabilities one issue/PR at a time.
+- [ ] Keep CPython as the fallback for every unverified module.
+
+### Phase 4 — Native migration and packaging
+- [ ] Evaluate Rust replacements for gevent-dependent and native-extension-heavy components.
+- [ ] Move suitable services behind stable interfaces.
+- [ ] Integrate RustPython into the ZirohNeth launcher.
+- [ ] Bundle the pinned CPython compatibility runtime where still required.
+- [ ] Add clean-machine Linux and Windows packaging tests.
+
+### Phase 5 — Adoption gate
+- [ ] All migrated modules pass differential and integration tests.
+- [ ] Critical application workflows pass on every declared supported target.
+- [ ] Runtime selection and fallback behavior are documented and tested.
+- [ ] Distribution is reproducible and does not require a developer toolchain.
+- [ ] Performance, memory, startup, and operational behavior meet project-defined thresholds.
+
+Only after these gates should the project consider changing the default runtime or removing CPython.
+
+## 🌈 Current status and non-goals
+
+This addendum is a plan, not an implementation report. It does not claim that:
+- CPython and RustPython are already orchestrated together.
+- Any listed module has passed RustPython compatibility tests.
+- A Floflis RustPython fork has been created.
+- Linux or Windows packaged artifacts exist.
+- RustPython is production-ready for all ZirohNeth workloads.
+
+The immediate deliverable is an isolated, measurable RustPython Lab while preserving the working CPython baseline.
