@@ -227,6 +227,68 @@ def record_digest(record):
     return blake3.blake3(rfc8785.dumps(envelope)).hexdigest()
 
 
+# The required v2 file that transports the exact terminal Bitcoin manifest.
+COMPATIBILITY_MANIFEST_PATH = "migration/legacy-content.json"
+
+
+def compatibility_manifest_digest(manifest):
+    """Hash the complete compatibility file representation deterministically."""
+    serialized = json.dumps(manifest, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def build_compatibility_descriptor(record, final_legacy_manifest):
+    """Build the Ethereum-signed pointer to a Bitcoin-authorized v1 manifest."""
+    payload = _payload(record)
+    if payload["protocol"] != PROTOCOL_V2:
+        raise MigrationError("Compatibility seeding requires migration protocol v2")
+    if not verify_migration(record) or not verify_final_legacy_manifest(record, final_legacy_manifest):
+        raise MigrationError("Compatibility manifest does not contain a valid terminal migration proof")
+
+    proof_digest = record_digest(record)
+    return {
+        "schema": 1,
+        "source_identity": payload["old_identity"],
+        "destination_identity": payload["new_identity"],
+        "inner_path": COMPATIBILITY_MANIFEST_PATH,
+        "manifest_digest_algorithm": "sha256",
+        "manifest_digest": compatibility_manifest_digest(final_legacy_manifest),
+        "proof_digest_algorithm": "blake3-256",
+        "proof_digest": proof_digest,
+    }
+
+
+def verify_compatibility_manifest(v2_manifest, legacy_manifest, destination_identity):
+    """Verify the v2 pointer and the exact Bitcoin-signed terminal v1 manifest."""
+    try:
+        if not isinstance(v2_manifest, dict) or not isinstance(legacy_manifest, dict):
+            return False
+        destination = CryptEthereum.normalize_address(destination_identity)
+        if (
+            int(v2_manifest.get("content_version", 1)) != 2
+            or CryptEthereum.normalize_address(v2_manifest.get("address", "")) != destination
+        ):
+            return False
+
+        record = legacy_manifest.get("migration")
+        if not isinstance(record, dict):
+            return False
+        descriptor = build_compatibility_descriptor(record, legacy_manifest)
+        expected_migration = {
+            "protocol": record["protocol"],
+            "source_identity": record["old_identity"],
+            "proof_digest_algorithm": "blake3-256",
+            "proof_digest": record_digest(record),
+        }
+        return (
+            record["new_identity"] == destination
+            and v2_manifest.get("migration") == expected_migration
+            and v2_manifest.get("migration_compatibility") == descriptor
+        )
+    except Exception:
+        return False
+
+
 class CheckpointStore:
     """Atomic local checkpoint ledger with explicit trust-on-first-checkpoint.
 
