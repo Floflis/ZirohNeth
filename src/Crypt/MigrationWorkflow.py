@@ -162,6 +162,68 @@ def _read_migration_journal(path):
         return None
 
 
+def _write_compatibility_manifest(target_directory, final_manifest, record):
+    """Persist the exact Bitcoin-signed terminal manifest in the v2 site tree."""
+    descriptor = CryptMigration.build_compatibility_descriptor(record, final_manifest)
+    target = Path(target_directory) / Path(*CryptMigration.COMPATIBILITY_MANIFEST_PATH.split("/"))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(final_manifest, sort_keys=True, ensure_ascii=False).encode("utf-8")
+
+    if target.exists():
+        try:
+            with target.open("r", encoding="utf-8") as stream:
+                existing = json.load(stream)
+        except (OSError, ValueError) as err:
+            raise MigrationWorkflowError("Existing compatibility manifest is unreadable") from err
+        if CryptMigration.compatibility_manifest_digest(existing) != descriptor["manifest_digest"]:
+            raise MigrationWorkflowError("A different compatibility manifest already occupies the reserved path")
+    else:
+        with target.open("wb") as stream:
+            stream.write(serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+    return descriptor
+
+
+def _ensure_compatibility_manifest(site, final_manifest, record, ethereum_private_key):
+    """Ensure the compatibility file is included in and authenticated by the v2 root."""
+    descriptor = _write_compatibility_manifest(site.storage.directory, final_manifest, record)
+    root = site.storage.loadJson("content.json")
+    current_descriptor = root.get("migration_compatibility")
+    if current_descriptor not in (None, descriptor):
+        raise MigrationWorkflowError("The v2 root already points to a different compatibility manifest")
+
+    compatibility_path = site.storage.getPath(CryptMigration.COMPATIBILITY_MANIFEST_PATH)
+    with compatibility_path.open("rb") as stream:
+        actual_hash = CryptHash.blake3sum(stream)
+    actual_size = compatibility_path.stat().st_size
+    file_info = root.get("files", {}).get(CryptMigration.COMPATIBILITY_MANIFEST_PATH, {})
+    file_entry_valid = (
+        file_info.get("blake3") == actual_hash
+        and file_info.get("size") == actual_size
+    )
+
+    if current_descriptor != descriptor or not file_entry_valid:
+        root["migration_compatibility"] = descriptor
+        site.content_manager.contents["content.json"] = root
+        site.content_manager.sign(
+            "content.json",
+            privatekey=_ethereum_key(ethereum_private_key),
+            filewrite=True,
+            remove_missing_optional=True,
+        )
+        root = site.storage.loadJson("content.json")
+
+    if (
+        not CryptMigration.verify_compatibility_manifest(root, final_manifest, site.address)
+        or not site.content_manager.verifyFile("content.json", root, ignore_same=False)
+    ):
+        raise MigrationWorkflowError("The Ethereum root failed compatibility-manifest verification")
+
+    return root
+
+
 def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, site_manager):
     """Stage, verify and promote the Ethereum import with restart recovery."""
     new_identity = record["new_identity"]
@@ -195,6 +257,9 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         if existing.get("signs") or existing.get("sign"):
             if not new_site.content_manager.verifyFile("content.json", existing, ignore_same=False):
                 raise MigrationWorkflowError("The existing Ethereum destination failed verification")
+            _ensure_compatibility_manifest(
+                new_site, final_manifest, record, ethereum_private_key
+            )
             new_site.settings["own"] = True
             new_site.settings["serving"] = True
             new_site.saveSettings()
@@ -238,6 +303,9 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
             os.fsync(stream.fileno())
 
         _copy_manifest_files(site, new_site, final_manifest, target_directory=stage_root)
+        compatibility_descriptor = _write_compatibility_manifest(
+            stage_root, final_manifest, record
+        )
 
         template = copy.deepcopy(final_manifest)
         for field in (
@@ -253,6 +321,7 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         template["identity_scheme"] = CryptEthereum.IDENTITY_SCHEME
         template["signature_scheme"] = CryptEthereum.SIGNATURE_SCHEME
         template["migration"] = expected_migration
+        template["migration_compatibility"] = compatibility_descriptor
         template["files"] = {}
         template.pop("files_optional", None)
         with (stage_root / "content.json").open("w", encoding="utf-8") as stream:
@@ -265,18 +334,11 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         os.replace(stage_root, target_root)
 
     # Keep the local journal until the signed destination has been published.
-    new_site.content_manager.sign(
-        "content.json",
-        privatekey=_ethereum_key(ethereum_private_key),
-        filewrite=True,
-        remove_missing_optional=True,
+    imported = _ensure_compatibility_manifest(
+        new_site, final_manifest, record, ethereum_private_key
     )
-    imported = new_site.storage.loadJson("content.json")
-    if (
-        imported.get("migration") != expected_migration
-        or not new_site.content_manager.verifyFile("content.json", imported, ignore_same=False)
-    ):
-        raise MigrationWorkflowError("The new Ethereum manifest failed local verification")
+    if imported.get("migration") != expected_migration:
+        raise MigrationWorkflowError("The new Ethereum manifest has an unexpected migration proof")
 
     new_site.settings["own"] = True
     new_site.settings["serving"] = True
@@ -351,6 +413,8 @@ def commit_migration(
     site.saveSettings()
 
     # This step is idempotent: retries reuse an already valid Ethereum site.
-    return _register_ethereum_site(
+    new_site = _register_ethereum_site(
         site, final_manifest, record, ethereum_private_key, site_manager
     )
+    site_manager.registerMigrationCompatibility(new_site)
+    return new_site
