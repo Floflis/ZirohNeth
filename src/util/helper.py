@@ -252,7 +252,23 @@ def isIp(ip):
             return False
 
 
-local_ip_pattern = re.compile(r"^127\.|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|169\.254\.|::1$|fe80")
+local_ip_pattern = re.compile(r"^127\.|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|169\.254\.|::1$|fe80|^fd[0-9a-f]{2}:")
+def isMeshIp(ip):
+    """Return whether an IPv6 address belongs to CJDNS or Yggdrasil."""
+    if not isinstance(ip, str):
+        return False
+    # Ignore an optional interface scope identifier (e.g. fe80::1%eth0).
+    ip = ip.split("%", 1)[0]
+    try:
+        packed = socket.inet_pton(socket.AF_INET6, ip)
+    except (OSError, TypeError, ValueError):
+        return False
+
+    # CJDNS assigns addresses from fc00::/8. Yggdrasil uses 0200::/7,
+    # including its routed 0300::/8 prefixes.
+    return packed[0] == 0xFC or (packed[0] & 0xFE) == 0x02
+
+
 def isPrivateIp(ip):
     return local_ip_pattern.match(ip)
 
@@ -276,20 +292,36 @@ def createSocket(ip, sock_type=socket.SOCK_STREAM):
         return socket.socket(socket.AF_INET, sock_type)
 
 
+# UDP route probes used to discover source addresses on ordinary IPv6 and mesh routes.
+IPV6_ROUTE_TEST_IPS = [
+    "ff0e::c",
+    "2606:4700:4700::1111",
+    "fc00::1",  # CJDNS: fc00::/8
+    "200::1",   # Yggdrasil: 0200::/7
+]
+
+
 def getInterfaceIps(ip_type="ipv4"):
     res = []
     if ip_type == "ipv6":
-        test_ips = ["ff0e::c", "2606:4700:4700::1111"]
+        # UDP connect performs a route lookup without sending a packet. The two
+        # overlay probes make the local source address discoverable even when
+        # there is no route to the public IPv6 Internet.
+        test_ips = IPV6_ROUTE_TEST_IPS
     else:
         test_ips = ['239.255.255.250', "8.8.8.8"]
 
     for test_ip in test_ips:
+        s = None
         try:
             s = createSocket(test_ip, sock_type=socket.SOCK_DGRAM)
             s.connect((test_ip, 1))
             res.append(s.getsockname()[0])
         except Exception:
             pass
+        finally:
+            if s:
+                s.close()
 
     try:
         res += [ip[4][0] for ip in socket.getaddrinfo(socket.gethostname(), 1)]

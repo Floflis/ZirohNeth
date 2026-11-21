@@ -97,20 +97,24 @@ class FileServer(ConnectionServer):
     def isIpv6Supported(self):
         if config.tor == "always":
             return True
-        # Test if we can connect to ipv6 address
-        ipv6_testip = "fcec:ae97:8902:d810:6c92:ec67:efb2:3ec5"
+
+        # Check for a usable non-loopback IPv6 source address rather than
+        # merely checking whether the kernel can create an IPv6 socket. This
+        # includes native IPv6, CJDNS and Yggdrasil routes discovered by the
+        # shared helper, while avoiding IPv6 peer attempts on loopback-only
+        # hosts.
         try:
-            sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-            sock.connect((ipv6_testip, 80))
-            local_ipv6 = sock.getsockname()[0]
-            if local_ipv6 == "::1":
-                self.log.debug("IPv6 not supported, no local IPv6 address")
-                return False
-            else:
-                self.log.debug("IPv6 supported on IP %s" % local_ipv6)
+            ipv6_addresses = helper.getInterfaceIps("ipv6")
+            usable_addresses = [
+                ip for ip in ipv6_addresses if not helper.isPrivateIp(ip)
+            ]
+            if usable_addresses:
+                self.log.debug(
+                    "IPv6 supported on routed address(es): %s" % usable_addresses
+                )
                 return True
-        except socket.error as err:
-            self.log.warning("IPv6 not supported: %s" % err)
+
+            self.log.debug("IPv6 not supported, no routed IPv6 source address")
             return False
         except Exception as err:
             self.log.error("IPv6 check error: %s" % err)
