@@ -63,6 +63,7 @@ class TestHelper:
         assert helper.isPrivateIp("192.168.1.1")
         assert not helper.isPrivateIp("1.1.1.1")
         assert helper.isPrivateIp("fe80::44f0:3d0:4e6:637c")
+        assert helper.isPrivateIp("fd12:3456:789a::1")  # IPv6 unique-local
         # Overlay addresses are not local-interface addresses for ZeroNet's
         # reachability heuristic: peers on the same mesh can route to them.
         assert not helper.isPrivateIp("fca5:95d6:bfde:d902:8951:276e:1111:a22c")  # CJDNS
