@@ -141,8 +141,16 @@ class Site(object):
     def isServing(self):
         if config.offline:
             return False
-        else:
-            return self.settings["serving"]
+
+        # A compatibility alias follows its v2 parent site's serving lifecycle.
+        parent_address = self.settings.get("migration_compatibility_parent")
+        if parent_address:
+            if parent_address == self.address:
+                return False
+            parent_site = SiteManager.site_manager.sites.get(parent_address)
+            return bool(parent_site and parent_site.isServing())
+
+        return bool(self.settings.get("serving", False))
 
     def getSettingsCache(self):
         back = {}
@@ -297,6 +305,11 @@ class Site(object):
             self.log.debug("DownloadContent %s: ended in %.3fs (tasks left: %s)" % (
                 inner_path, time.time() - s, len(self.worker_manager.tasks)
             ))
+
+        if inner_path == "content.json" and download_files:
+            # Required compatibility data is registered only after its file
+            # task has completed and the v2 root has authenticated the bytes.
+            SiteManager.site_manager.registerMigrationCompatibility(self)
 
         return True
 
