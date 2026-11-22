@@ -14,7 +14,14 @@ import pytest
 # Keep these focused tests importable without booting the application.
 if "Config" not in sys.modules:
     config_module = ModuleType("Config")
-    config_module.config = SimpleNamespace(openssl_lib_file=None)
+    config_module.config = SimpleNamespace(
+        openssl_lib_file=None,
+        action="main",
+        fileserver_port=0,
+        data_dir=Path("."),
+        private_dir=Path("."),
+        admin_pages=[],
+    )
     sys.modules["Config"] = config_module
 
 from eth_account import Account
