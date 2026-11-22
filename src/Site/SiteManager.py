@@ -229,6 +229,7 @@ class SiteManager(object):
         from .Site import Site
         from Crypt import CryptMigration, CryptHash
         import copy
+        import io
 
         try:
             root = site.content_manager.contents.get("content.json")
@@ -267,13 +268,14 @@ class SiteManager(object):
             ):
                 raise ValueError("Compatibility manifest is not a required BLAKE3 v2 file")
             with compatibility_path.open("rb") as stream:
-                actual_digest = CryptHash.blake3sum(stream)
-            actual_size = compatibility_path.stat().st_size
+                compatibility_bytes = stream.read()
+            actual_digest = CryptHash.blake3sum(io.BytesIO(compatibility_bytes))
+            actual_size = len(compatibility_bytes)
             if actual_digest != file_info.get("blake3") or actual_size != file_info.get("size"):
                 raise ValueError("Compatibility manifest BLAKE3 digest or size does not match v2 root")
 
-            with compatibility_path.open("r", encoding="utf-8") as stream:
-                legacy_manifest = json.load(stream)
+            # Hash and parse the same byte sequence to avoid a read/hash race.
+            legacy_manifest = json.loads(compatibility_bytes.decode("utf-8"))
 
             if not CryptMigration.verify_compatibility_manifest(root, legacy_manifest, site.address):
                 raise ValueError("Compatibility manifest failed v2/Bitcoin proof validation")
