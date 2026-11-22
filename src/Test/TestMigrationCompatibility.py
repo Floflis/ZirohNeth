@@ -268,9 +268,6 @@ def test_site_manager_registers_only_a_signed_and_hash_verified_compatibility_se
     import importlib
     from Site import SiteManager as SiteManagerModule
 
-    legacy_manifest, record = _prepared_migration()
-    # Derive the destination key from a second fixture record whose EOA is the
-    # same one used to create the test root.
     ethereum_account = Account.create()
     bitcoin_key = CryptBitcoin.newPrivatekey()
     old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
