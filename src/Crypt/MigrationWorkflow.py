@@ -6,6 +6,7 @@ as a historical alias; SiteManager resolves it to the Ethereum identity after
 verifying the embedded proof.
 """
 import copy
+import io
 import json
 import os
 import shutil
@@ -48,6 +49,16 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
         raise MigrationWorkflowError(
             "Included/user manifests must be migrated before this site can be transferred"
         )
+    reserved_paths = {
+        CryptMigration.COMPATIBILITY_MANIFEST_PATH,
+        "migration/legacy-index.html",
+    }
+    for collection_name in ("files", "files_optional"):
+        collisions = reserved_paths.intersection(current.get(collection_name, {}))
+        if collisions:
+            raise MigrationWorkflowError(
+                "Original site uses a reserved migration path: " + sorted(collisions)[0]
+            )
 
     # Sign the terminal legacy body once to establish its final sequence and
     # timestamp. The migration envelope is excluded from its body digest to
@@ -62,6 +73,21 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
             "migration_target": new_identity,
         },
     )
+    # Bind the complete original v1 manifest independently from the terminal
+    # landing-page manifest. commit_migration re-checks this before importing.
+    source_manifest_digest = CryptMigration.legacy_manifest_digest(current)
+    landing_page = CryptMigration.build_migration_landing_page(
+        old_identity, new_identity
+    )
+    final_manifest["files"] = {
+        "index.html": {
+            "sha512": CryptHash.sha512sum(io.BytesIO(landing_page)),
+            "size": len(landing_page),
+        }
+    }
+    final_manifest.pop("files_optional", None)
+    final_manifest["migration_source_manifest_digest"] = source_manifest_digest
+
     final_sequence = final_manifest.get("sequence", final_manifest.get("modified"))
     payload = {
         "protocol": CryptMigration.PROTOCOL_V2,
@@ -141,6 +167,34 @@ def _copy_manifest_files(source_site, target_site, manifest, target_directory=No
                 )
 
 
+def _verify_imported_source_files(source_site, target_site, manifest):
+    """Verify every available original v1 file survived the Ethereum import."""
+    source_root = source_site.storage.directory.resolve()
+    target_root = target_site.storage.directory.resolve()
+
+    for collection_name in ("files", "files_optional"):
+        for relative_name, file_info in manifest.get(collection_name, {}).items():
+            relative = Path(relative_name)
+            if not source_site.content_manager.isValidRelativePath(relative):
+                raise MigrationWorkflowError("Unsafe path in original manifest: " + relative_name)
+            source = (source_root / relative).resolve()
+            target = (target_root / relative).resolve()
+            if not source.is_relative_to(source_root) or not target.is_relative_to(target_root):
+                raise MigrationWorkflowError("Original manifest path escapes the site directory")
+            if not source.is_file():
+                if collection_name == "files_optional":
+                    continue
+                raise MigrationWorkflowError("Original required file is missing: " + relative_name)
+            if not target.is_file():
+                raise MigrationWorkflowError("Original file was not preserved in Ethereum: " + relative_name)
+            with target.open("rb") as stream:
+                actual_hash = CryptHash.sha512sum(stream)
+                actual_size = stream.tell()
+            if actual_hash != file_info.get("sha512") or actual_size != file_info.get("size"):
+                raise MigrationWorkflowError("Ethereum import does not preserve original file bytes: " + relative_name)
+
+
+
 def _migration_journal(record):
     """Return the exact identity tuple that authorizes resuming a staged import."""
     return {
@@ -164,11 +218,26 @@ def _read_migration_journal(path):
 
 
 def _write_compatibility_manifest(target_directory, final_manifest, record):
-    """Persist the exact Bitcoin-signed terminal manifest in the v2 site tree."""
+    """Persist the terminal manifest and its separately BLAKE3-seeded Classic page."""
     descriptor = CryptMigration.build_compatibility_descriptor(record, final_manifest)
     target = Path(target_directory) / Path(*CryptMigration.COMPATIBILITY_MANIFEST_PATH.split("/"))
     target.parent.mkdir(parents=True, exist_ok=True)
     serialized = json.dumps(final_manifest, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    landing_page = CryptMigration.build_migration_landing_page(
+        record["old_identity"], record["new_identity"]
+    )
+    page_info = final_manifest["files"]["index.html"]
+    if (
+        CryptHash.sha512sum(io.BytesIO(landing_page)) != page_info["sha512"]
+        or len(landing_page) != page_info["size"]
+    ):
+        raise MigrationWorkflowError("Generated Classic landing page differs from the Bitcoin-signed digest")
+    page_target = Path(target_directory) / "migration" / "legacy-index.html"
+    page_target.parent.mkdir(parents=True, exist_ok=True)
+    if page_target.exists() and page_target.read_bytes() != landing_page:
+        raise MigrationWorkflowError("A different Classic landing page already occupies the reserved path")
+    if not page_target.exists():
+        helper.atomicWrite(page_target, landing_page)
 
     if target.exists():
         try:
@@ -203,8 +272,18 @@ def _ensure_compatibility_manifest(site, final_manifest, record, ethereum_privat
         file_info.get("blake3") == actual_hash
         and file_info.get("size") == actual_size
     )
+    page_path = site.storage.getPath("migration/legacy-index.html")
+    with page_path.open("rb") as stream:
+        page_hash = CryptHash.blake3sum(stream)
+    page_size = page_path.stat().st_size
+    page_info = root.get("files", {}).get("migration/legacy-index.html", {})
+    page_entry_valid = (
+        page_info.get("blake3") == page_hash
+        and page_info.get("size") == page_size
+        and "migration/legacy-index.html" not in root.get("files_optional", {})
+    )
 
-    if current_descriptor != descriptor or not file_entry_valid:
+    if current_descriptor != descriptor or not file_entry_valid or not page_entry_valid:
         root["migration_compatibility"] = descriptor
         site.content_manager.contents["content.json"] = root
         site.content_manager.sign(
@@ -223,6 +302,10 @@ def _ensure_compatibility_manifest(site, final_manifest, record, ethereum_privat
         or published_file_info.get("blake3") != actual_hash
         or published_file_info.get("size") != actual_size
         or CryptMigration.COMPATIBILITY_MANIFEST_PATH in root.get("files_optional", {})
+        or not isinstance(root.get("files", {}).get("migration/legacy-index.html"), dict)
+        or root["files"]["migration/legacy-index.html"].get("blake3") != page_hash
+        or root["files"]["migration/legacy-index.html"].get("size") != page_size
+        or "migration/legacy-index.html" in root.get("files_optional", {})
     ):
         raise MigrationWorkflowError(
             "The terminal v1 compatibility manifest was not included as a required BLAKE3 v2 file"
@@ -237,9 +320,14 @@ def _ensure_compatibility_manifest(site, final_manifest, record, ethereum_privat
     return root
 
 
-def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, site_manager):
-    """Stage, verify and promote the Ethereum import with restart recovery."""
+def _register_ethereum_site(
+    site, final_manifest, record, ethereum_private_key, site_manager,
+    source_manifest=None,
+):
+    """Stage the complete original v1 site before the Bitcoin view is reduced."""
     new_identity = record["new_identity"]
+    if source_manifest is None:
+        source_manifest = site.storage.loadJson("content.json")
     new_site = site_manager.need(new_identity, all_file=False)
     target_root = new_site.storage.directory.resolve()
     existing_path = new_site.storage.getPath("content.json")
@@ -270,6 +358,7 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
         if existing.get("signs") or existing.get("sign"):
             if not new_site.content_manager.verifyFile("content.json", existing, ignore_same=False):
                 raise MigrationWorkflowError("The existing Ethereum destination failed verification")
+            _verify_imported_source_files(site, new_site, source_manifest)
             _ensure_compatibility_manifest(
                 new_site, final_manifest, record, ethereum_private_key
             )
@@ -315,12 +404,14 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
             stream.flush()
             os.fsync(stream.fileno())
 
-        _copy_manifest_files(site, new_site, final_manifest, target_directory=stage_root)
+        # Import the complete original v1 file set, not the one-file terminal
+        # manifest. This stage is promoted before the Bitcoin identity changes.
+        _copy_manifest_files(site, new_site, source_manifest, target_directory=stage_root)
         compatibility_descriptor = _write_compatibility_manifest(
             stage_root, final_manifest, record
         )
 
-        template = copy.deepcopy(final_manifest)
+        template = copy.deepcopy(source_manifest)
         for field in (
             "sign", "signs", "signers", "migration", "migration_status",
             "migration_protocol", "migration_target", "content_version",
@@ -345,6 +436,9 @@ def _register_ethereum_site(site, final_manifest, record, ethereum_private_key, 
                 raise MigrationWorkflowError("Ethereum destination changed during migration")
             target_root.rmdir()
         os.replace(stage_root, target_root)
+
+    # Re-check the promoted copy before signing/publishing the Ethereum root.
+    _verify_imported_source_files(site, new_site, source_manifest)
 
     # Keep the local journal until the signed destination has been published.
     imported = _ensure_compatibility_manifest(
@@ -408,12 +502,58 @@ def commit_migration(
     site.settings["migration_state"] = "migration_pending"
     site.saveSettings()
 
-    # Keep the old Bitcoin address and directory intact. Publish its signed
-    # terminal manifest before pinning it locally.
+    # Re-read and verify the exact source manifest that prepare_migration
+    # committed to. Never import a different or newer Bitcoin snapshot.
+    source_manifest = site.storage.loadJson("content.json")
+    if (
+        not isinstance(source_manifest, dict)
+        or int(source_manifest.get("content_version", 1)) != 1
+        or source_manifest.get("migration")
+        or CryptMigration.legacy_manifest_digest(source_manifest)
+        != final_manifest.get("migration_source_manifest_digest")
+        or site.content_manager.verifyFile(
+            "content.json", copy.deepcopy(source_manifest), ignore_same=False
+        ) is not True
+    ):
+        raise MigrationWorkflowError("Original Bitcoin manifest changed after migration preparation")
+
+    # Phase 1: preserve and publish the complete original site under Ethereum.
+    # The old Bitcoin directory and manifest remain untouched until this succeeds.
+    new_site = _register_ethereum_site(
+        site, final_manifest, record, ethereum_private_key, site_manager,
+        source_manifest=source_manifest,
+    )
+
+    # Phase 2: install the generated Classic page and publish its Bitcoin-signed
+    # one-file manifest only after the complete v2 import is safely published.
+    landing_page = CryptMigration.build_migration_landing_page(
+        record["old_identity"], record["new_identity"]
+    )
+    page_info = final_manifest["files"]["index.html"]
+    if (
+        CryptHash.sha512sum(io.BytesIO(landing_page)) != page_info["sha512"]
+        or len(landing_page) != page_info["size"]
+    ):
+        raise MigrationWorkflowError("Classic landing page failed its signed digest/size check")
+    helper.atomicWrite(site.storage.getPath("index.html"), landing_page)
     site.storage.writeJson("content.json", final_manifest)
     site.content_manager.contents["content.json"] = final_manifest
     if not site.publish(inner_path="content.json"):
-        raise MigrationWorkflowError("Final Bitcoin manifest was not published to any peer")
+        raise MigrationWorkflowError("Final Bitcoin landing-page manifest was not published")
+
+    # Phase 3: prune only files authorized by the original manifest, and only
+    # after the complete v2 copy and terminal Bitcoin publication succeeded.
+    for collection_name in ("files", "files_optional"):
+        for relative_name in source_manifest.get(collection_name, {}):
+            if relative_name == "index.html":
+                continue
+            relative = Path(relative_name)
+            if not site.content_manager.isValidRelativePath(relative):
+                raise MigrationWorkflowError("Unsafe legacy path while pruning: " + relative_name)
+            old_file = (site.storage.directory / relative).resolve()
+            site_root = site.storage.directory.resolve()
+            if old_file.is_relative_to(site_root) and old_file.is_file():
+                old_file.unlink()
 
     if latest is None:
         checkpoint_store.trust_checkpoint(record, expected_digest)
@@ -425,9 +565,5 @@ def commit_migration(
     site.settings["serving"] = True
     site.saveSettings()
 
-    # This step is idempotent: retries reuse an already valid Ethereum site.
-    new_site = _register_ethereum_site(
-        site, final_manifest, record, ethereum_private_key, site_manager
-    )
     site_manager.registerMigrationCompatibility(new_site)
     return new_site

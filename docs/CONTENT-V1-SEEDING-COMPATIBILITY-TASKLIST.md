@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implementation in review:** [PR #23](https://github.com/Floflis/ZirohNeth/pull/23) adds the first runtime implementation and focused tests. The PR is still a draft and its tests have not yet been executed. All task checkboxes remain open until the evidence requirements in `AGENTS.md` are met.
+**Compatibility transport merged:** [PR #23](https://github.com/Floflis/ZirohNeth/pull/23) merged the initial manifest-only transport. [PR #25](https://github.com/Floflis/ZirohNeth/pull/25) is the separate implementation track for the Classic landing page, full-content preservation and two-file historical identity. Keep task checkboxes open until runtime tests and the evidence requirements in `AGENTS.md` are satisfied.
 
 ## Problem
 
@@ -71,9 +71,9 @@ to its landing page.
   remains a v1 network concern, while v2 peers provide redundant availability for the
   signed migration landing page.
 
-## Implementation snapshot (PR #23)
+## Implementation snapshot (PR #23 / PR #25)
 
-PR #23 currently implements the earlier compatibility-manifest transport design:
+PR #23 merged the earlier compatibility-manifest transport design:
 it stores and verifies the terminal v1 `content.json` and creates a historical
 serving alias. It does **not yet implement** the newly required signed HTML landing
 page, the two-file-only historical manifest, or preservation of all original content
