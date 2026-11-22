@@ -260,7 +260,11 @@ class SiteManager(object):
             # The compatibility object must be a required, BLAKE3-authenticated
             # v2 file, not merely a local JSON file at the reserved path.
             file_info = root.get("files", {}).get(CryptMigration.COMPATIBILITY_MANIFEST_PATH)
-            if not isinstance(file_info, dict) or "blake3" not in file_info:
+            if (
+                not isinstance(file_info, dict)
+                or "blake3" not in file_info
+                or CryptMigration.COMPATIBILITY_MANIFEST_PATH in root.get("files_optional", {})
+            ):
                 raise ValueError("Compatibility manifest is not a required BLAKE3 v2 file")
             with compatibility_path.open("rb") as stream:
                 actual_digest = CryptHash.blake3sum(stream)
