@@ -227,7 +227,8 @@ class SiteManager(object):
         checked independently before the old-address alias is advertised.
         """
         from .Site import Site
-        from Crypt import CryptMigration
+        from Crypt import CryptMigration, CryptHash
+        import copy
 
         try:
             root = site.content_manager.contents.get("content.json")
@@ -244,9 +245,29 @@ class SiteManager(object):
             if descriptor.get("inner_path") != CryptMigration.COMPATIBILITY_MANIFEST_PATH:
                 raise ValueError("Unsupported migration compatibility path")
 
+            # Local cache presence is not proof of authenticity. Re-check the
+            # Ethereum EIP-712 root signature after restart before trusting its
+            # pointer to the Bitcoin compatibility manifest.
+            if site.content_manager.verifyFile(
+                "content.json", copy.deepcopy(root), ignore_same=False
+            ) is not True:
+                raise ValueError("The v2 root signature or content policy is invalid")
+
             compatibility_path = site.storage.getPath(CryptMigration.COMPATIBILITY_MANIFEST_PATH)
             if not compatibility_path.is_file():
                 return False
+
+            # The compatibility object must be a required, BLAKE3-authenticated
+            # v2 file, not merely a local JSON file at the reserved path.
+            file_info = root.get("files", {}).get(CryptMigration.COMPATIBILITY_MANIFEST_PATH)
+            if not isinstance(file_info, dict) or "blake3" not in file_info:
+                raise ValueError("Compatibility manifest is not a required BLAKE3 v2 file")
+            with compatibility_path.open("rb") as stream:
+                actual_digest = CryptHash.blake3sum(stream)
+            actual_size = compatibility_path.stat().st_size
+            if actual_digest != file_info.get("blake3") or actual_size != file_info.get("size"):
+                raise ValueError("Compatibility manifest BLAKE3 digest or size does not match v2 root")
+
             with compatibility_path.open("r", encoding="utf-8") as stream:
                 legacy_manifest = json.load(stream)
 
@@ -330,6 +351,10 @@ class SiteManager(object):
 
             self.sites_changed = int(time.time())
             self.saveDelayed()
+
+            # Start advertising the historical address only after its signed
+            # terminal manifest is on disk and the alias can serve it.
+            gevent.spawn(alias_site.announce, mode="start", force=True)
             return alias_site
         except Exception as err:
             self.log.warning(
