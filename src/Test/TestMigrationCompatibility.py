@@ -411,3 +411,34 @@ def test_site_manager_does_not_register_a_tampered_compatibility_file(
     assert manager.registerMigrationCompatibility(parent_site) is False
     assert record["old_identity"] not in manager.sites
     assert not (tmp_path / record["old_identity"] / "content.json").exists()
+
+
+
+def test_historical_alias_serving_tracks_parent_and_global_offline_state(monkeypatch):
+    """The Bitcoin address is never served when its Ethereum parent is offline."""
+    import importlib
+    from Site import SiteManager as SiteManagerModule
+
+    site_module = importlib.import_module("Site.Site")
+    alias = site_module.Site.__new__(site_module.Site)
+    alias.address = "1HistoricalBitcoinAddress"
+    alias.settings = {
+        "migration_compatibility_parent": "0x0000000000000000000000000000000000000001"
+    }
+
+    state = {"serving": True}
+    parent = SimpleNamespace(isServing=lambda: state["serving"])
+    monkeypatch.setattr(
+        SiteManagerModule.site_manager,
+        "sites",
+        {alias.settings["migration_compatibility_parent"]: parent},
+    )
+    monkeypatch.setattr(site_module.config, "offline", False, raising=False)
+
+    assert alias.isServing() is True
+    state["serving"] = False
+    assert alias.isServing() is False
+
+    state["serving"] = True
+    monkeypatch.setattr(site_module.config, "offline", True, raising=False)
+    assert alias.isServing() is False
