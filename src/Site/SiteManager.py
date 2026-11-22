@@ -358,9 +358,10 @@ class SiteManager(object):
             self.sites_changed = int(time.time())
             self.saveDelayed()
 
-            # Start advertising the historical address only after its signed
-            # terminal manifest is on disk and the alias can serve it.
-            gevent.spawn(alias_site.announce, mode="start", force=True)
+            # Start advertising only when the parent v2 site is currently
+            # serving. The alias itself also gates requests on that parent.
+            if alias_site.isServing():
+                gevent.spawn(alias_site.announce, mode="start", force=True)
             return alias_site
         except Exception as err:
             self.log.warning(
