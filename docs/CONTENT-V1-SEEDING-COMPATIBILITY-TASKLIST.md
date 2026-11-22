@@ -109,22 +109,22 @@ and classic-client rendering tests remain to be implemented and executed.
 - [ ] **V1S-01** Locate and define the persisted representation and lifecycle of the terminal Bitcoin/v1 `content.json` associated with a migrated v2 site.
 - [ ] **V1S-02** Validate the legacy Bitcoin signature, manifest version, migration proof, old/new identity binding, sequence and digest linkage before accepting the compatibility manifest.
 - [ ] **V1S-03** Reject malformed, unsigned, conflicting, stale/non-terminal or unrelated v1 manifests; never replace the locally pinned terminal manifest with an unverified peer copy.
-- [ ] **V1S-04** Make the verified terminal v1 manifest persist across restart, site re-seeding, reindexing and cache eviction (unless an explicit safe retention policy removes it).
+- [ ] **V1S-04** Make the verified terminal v1 manifest and its signed `index.html` persist across restart, site re-seeding, reindexing and cache eviction (unless an explicit safe retention policy removes them).
 
 ### Peer seeding and discovery
 
-- [ ] **V1S-05** When a peer seeds a migrated v2 site, seed/serve the verified terminal v1 `content.json` under the historical Bitcoin address as well as the v2 manifest under the Ethereum address.
+- [ ] **V1S-05** When a peer seeds a migrated v2 site, seed/serve exactly the terminal v1 `content.json` and signed migration `index.html` under the historical Bitcoin address, as well as the complete v2 site under Ethereum.
 - [ ] **V1S-06** Advertise compatibility availability only after the v1 manifest has been verified and durably stored; avoid announcing a v1 address with no served manifest.
-- [ ] **V1S-07** Ensure legacy v1 requests can retrieve the terminal compatibility manifest from v2 seeders without changing legacy request framing or signature semantics.
+- [ ] **V1S-07** Ensure unmodified ZeroNet Classic clients can retrieve the terminal `content.json` and authenticated `index.html`, then render the migration landing page using unchanged v1 request framing and signature semantics.
 - [ ] **V1S-08** Ensure v2 clients can discover and retrieve compatibility manifests from multiple peers; do not make the original migration publisher the sole availability dependency.
-- [ ] **V1S-09** Reconcile peer availability, seed lifecycle, shutdown/restart and manifest updates so compatibility availability is withdrawn or refreshed accurately.
+- [ ] **V1S-09** Reconcile peer availability, restart and reseed so the two-file historical landing page remains available while its v2 parent is seeded. Explicit tracker/DHT withdrawal is not required because the classic v1 network continues seeding the historical identity.
 - [ ] **V1S-10** Avoid loops, address conflation or cross-site cache collisions between the Bitcoin historical identity and Ethereum destination identity.
 
 ### Visitor behavior and redirect contract
 
 - [ ] **V1S-11** Define and implement redirect behavior for migration-aware ZirohNeth clients visiting the old Bitcoin address: validate the terminal migration proof and resolve to the Ethereum destination.
 - [ ] **V1S-12** Preserve the historical site directory/address and expose an understandable migration state instead of silently rewriting identity or losing local data.
-- [ ] **V1S-13** Investigate whether legacy clients can be supported through a signed site-level redirect/shim. Document limitations and do not claim old clients understand the v2 migration envelope.
+- [ ] **V1S-13** Verify the generated signed landing page renders in an unmodified ZeroNet Classic client and clearly presents the migration notice and ZirohNeth link. Classic clients do not need Ethereum proof support.
 - [ ] **V1S-14** Define behavior when the v1 manifest is temporarily unavailable, peers disagree, a first-contact peer withholds the terminal manifest, or the visitor is offline. Fail safely and show the historical address rather than inventing a destination.
 
 ### Tests and evidence
@@ -132,18 +132,18 @@ and classic-client rendering tests remain to be implemented and executed.
 - [ ] **V1S-15** Unit tests for validation, persistence, retrieval, seeding advertisement, historical-address routing and redirect resolution.
 - [ ] **V1S-16** Regression tests proving ordinary v1 sites and ordinary v2 sites without a migration record retain their existing behavior.
 - [ ] **V1S-17** Multi-peer integration test: a migrated site is seeded by multiple v2 peers; a visitor starting from the Bitcoin v1 address obtains the exact terminal signed manifest and resolves to the Ethereum destination.
-- [ ] **V1S-18** Restart/reseed and peer-unavailability tests; test conflicting/older valid v1 manifests and verify they cannot overwrite the pinned terminal manifest.
-- [ ] **V1S-19** Test legacy client behavior separately from migration-aware client behavior; document any site-level shim as a distinct compatibility result.
+- [ ] **V1S-18** Restart/reseed and peer-unavailability tests; simulate a post-migration competing Bitcoin-signed v1 manifest and verify conflict detection without silently replacing the pinned migration checkpoint.
+- [ ] **V1S-19** Test classic-client rendering of the landing page separately from migration-aware ZirohNeth proof validation and Ethereum address resolution.
 - [ ] **V1S-20** Record exact test commands, outcomes, environment/topology, PR URL and commit SHA for each completed task. Do not close checklist items without evidence.
 
 ## Acceptance criteria
 
 1. A migrated v2 site with a valid terminal v1 migration manifest can be seeded by multiple v2 peers.
-2. The old Bitcoin address remains resolvable to the exact authorized terminal v1 manifest, with unchanged v1 verification.
+2. The old Bitcoin address serves exactly two files: the terminal Bitcoin-signed `content.json` and its authenticated migration `index.html`.
 3. Migration-aware visitors using the old address can validate the proof and reach the Ethereum v2 identity.
 4. Missing or conflicting compatibility data fails safely; unverified data is never advertised as seedable.
 5. Existing non-migrated v1 and v2 sites remain unaffected.
-6. Legacy-client redirect limitations are explicitly tested and documented rather than assumed.
+6. An unmodified ZeroNet Classic client renders the signed migration landing page; it does not need to understand the Ethereum migration proof.
 7. Every completed implementation task has linked PR/commit/test evidence.
 
 ## Related work
