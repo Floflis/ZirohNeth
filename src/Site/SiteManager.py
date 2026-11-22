@@ -280,6 +280,33 @@ class SiteManager(object):
             if not CryptMigration.verify_compatibility_manifest(root, legacy_manifest, site.address):
                 raise ValueError("Compatibility manifest failed v2/Bitcoin proof validation")
 
+            # The Classic page is committed by both the Bitcoin SHA-512/size
+            # entry and the Ethereum BLAKE3 root.
+            page_inner_path = "migration/legacy-index.html"
+            page_path = site.storage.getPath(page_inner_path)
+            page_info = root.get("files", {}).get(page_inner_path)
+            if (
+                not isinstance(page_info, dict)
+                or page_inner_path in root.get("files_optional", {})
+                or not page_path.is_file()
+            ):
+                raise ValueError("Classic migration page is not a required v2 file")
+            landing_page = page_path.read_bytes()
+            if (
+                CryptHash.blake3sum(io.BytesIO(landing_page)) != page_info.get("blake3")
+                or len(landing_page) != page_info.get("size")
+            ):
+                raise ValueError("Classic migration page failed its v2 BLAKE3 digest/size check")
+            legacy_page_info = legacy_manifest.get("files", {}).get("index.html", {})
+            if (
+                CryptHash.sha512sum(io.BytesIO(landing_page)) != legacy_page_info.get("sha512")
+                or len(landing_page) != legacy_page_info.get("size")
+                or landing_page != CryptMigration.build_migration_landing_page(
+                    legacy_manifest["address"], site.address
+                )
+            ):
+                raise ValueError("Classic migration page does not match the Bitcoin-signed manifest")
+
             record = legacy_manifest["migration"]
             old_address = record["old_identity"]
             expected_digest = CryptMigration.record_digest(record)
@@ -329,6 +356,13 @@ class SiteManager(object):
                     legacy_manifest_path,
                     json.dumps(legacy_manifest, sort_keys=True, ensure_ascii=False).encode("utf-8")
                 )
+
+            # Materialize the verified landing page beside the terminal
+            # manifest for unmodified ZeroNet Classic clients.
+            legacy_directory.mkdir(parents=True, exist_ok=True)
+            legacy_index_path = legacy_directory / "index.html"
+            if not legacy_index_path.is_file() or legacy_index_path.read_bytes() != landing_page:
+                helper.atomicWrite(legacy_index_path, landing_page)
 
             alias_settings = {
                 "own": False,
