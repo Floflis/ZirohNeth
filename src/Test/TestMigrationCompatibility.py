@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -18,7 +19,7 @@ if "Config" not in sys.modules:
 
 from eth_account import Account
 
-from Crypt import CryptBitcoin, CryptMigration
+from Crypt import CryptBitcoin, CryptEthereum, CryptMigration, CryptHash
 from Crypt import MigrationWorkflow
 from Crypt.MigrationWorkflow import _write_compatibility_manifest
 
@@ -212,3 +213,201 @@ def test_migration_aware_site_manager_resolves_old_address_from_terminal_manifes
     ).latest()
     assert checkpoint is not None
     assert CryptMigration.record_digest(checkpoint) == CryptMigration.record_digest(record)
+
+
+
+def _signed_v2_compatibility_site(tmp_path, legacy_manifest, record, ethereum_key):
+    """Build a real EIP-712-signed v2 root and its required compatibility file."""
+    destination = record["new_identity"]
+    descriptor = CryptMigration.build_compatibility_descriptor(record, legacy_manifest)
+    site_root = tmp_path / destination
+    compatibility_path = site_root / CryptMigration.COMPATIBILITY_MANIFEST_PATH
+    compatibility_path.parent.mkdir(parents=True)
+    serialized = json.dumps(
+        legacy_manifest, sort_keys=True, ensure_ascii=False
+    ).encode("utf-8")
+    compatibility_path.write_bytes(serialized)
+
+    root = {
+        "address": destination,
+        "inner_path": "content.json",
+        "modified": int(time.time()),
+        "signs_required": 1,
+        "content_version": 2,
+        "hash_algorithm": "blake3-256",
+        "identity_scheme": CryptEthereum.IDENTITY_SCHEME,
+        "signature_scheme": CryptEthereum.SIGNATURE_SCHEME,
+        "sequence": 1,
+        "previous_update_digest": CryptEthereum.ZERO_DIGEST,
+        "migration": {
+            "protocol": record["protocol"],
+            "source_identity": record["old_identity"],
+            "proof_digest_algorithm": "blake3-256",
+            "proof_digest": CryptMigration.record_digest(record),
+        },
+        "migration_compatibility": descriptor,
+        "files": {
+            CryptMigration.COMPATIBILITY_MANIFEST_PATH: {
+                "blake3": CryptHash.blake3sum(io.BytesIO(serialized)),
+                "size": len(serialized),
+            }
+        },
+    }
+    root["signs"] = {
+        destination: CryptEthereum.sign_manifest(
+            root, "eth:" + ethereum_key.hex()
+        )
+    }
+    return site_root, root
+
+
+def test_site_manager_registers_only_a_signed_and_hash_verified_compatibility_seed(
+    tmp_path, monkeypatch
+):
+    """A v2 peer exposes its old Bitcoin address only after all checks pass."""
+    import importlib
+    from Site import SiteManager as SiteManagerModule
+
+    legacy_manifest, record = _prepared_migration()
+    # Derive the destination key from a second fixture record whose EOA is the
+    # same one used to create the test root.
+    ethereum_account = Account.create()
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
+    site_source = _Site(old_identity, bitcoin_key)
+    legacy_manifest, record = MigrationWorkflow.prepare_migration(
+        site_source, bitcoin_key, "eth:" + ethereum_account.key.hex()
+    )
+
+    site_root, root = _signed_v2_compatibility_site(
+        tmp_path, legacy_manifest, record, ethereum_account.key
+    )
+    monkeypatch.setattr(
+        SiteManagerModule.config, "data_dir", tmp_path, raising=False
+    )
+
+    class _ContentManager:
+        contents = {"content.json": root}
+
+        def verifyFile(self, inner_path, content, ignore_same=False):
+            signature = content["signs"][record["new_identity"]]
+            return CryptEthereum.verify_manifest(
+                content, signature, record["new_identity"]
+            )
+
+    class _Storage:
+        directory = site_root
+
+        def getPath(self, inner_path):
+            return site_root / Path(*str(inner_path).split("/"))
+
+        def isFile(self, inner_path):
+            return self.getPath(inner_path).is_file()
+
+    parent_site = SimpleNamespace(
+        address=record["new_identity"],
+        content_manager=_ContentManager(),
+        storage=_Storage(),
+    )
+
+    class _AliasSite:
+        def __init__(self, address, allow_create=True, settings=None):
+            self.address = address
+            self.settings = dict(settings or {})
+            self.announced = False
+
+        def announce(self, *args, **kwargs):
+            self.announced = True
+
+    site_module = importlib.import_module("Site.Site")
+    monkeypatch.setattr(site_module, "Site", _AliasSite)
+    spawned = []
+    monkeypatch.setattr(
+        SiteManagerModule.gevent,
+        "spawn",
+        lambda *args, **kwargs: spawned.append((args, kwargs)),
+    )
+
+    manager = SiteManagerModule.SiteManager.__new__(SiteManagerModule.SiteManager)
+    manager.sites = {record["new_identity"]: parent_site}
+    manager.log = logging.getLogger("TestMigrationCompatibility")
+    manager.saveDelayed = lambda: None
+
+    alias = manager.registerMigrationCompatibility(parent_site)
+
+    assert alias is manager.sites[record["old_identity"]]
+    assert alias.settings["migration_compatibility_parent"] == record["new_identity"]
+    assert alias.settings["migration_role"] == "historical"
+    stored_legacy = json.loads(
+        (tmp_path / record["old_identity"] / "content.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert stored_legacy == legacy_manifest
+    assert len(spawned) == 1
+
+
+def test_site_manager_does_not_register_a_tampered_compatibility_file(
+    tmp_path, monkeypatch
+):
+    """A signed root cannot make altered local compatibility bytes seedable."""
+    import importlib
+    from Site import SiteManager as SiteManagerModule
+
+    ethereum_account = Account.create()
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
+    source = _Site(old_identity, bitcoin_key)
+    legacy_manifest, record = MigrationWorkflow.prepare_migration(
+        source, bitcoin_key, "eth:" + ethereum_account.key.hex()
+    )
+    site_root, root = _signed_v2_compatibility_site(
+        tmp_path, legacy_manifest, record, ethereum_account.key
+    )
+    (site_root / CryptMigration.COMPATIBILITY_MANIFEST_PATH).write_bytes(
+        b'{"address":"tampered"}'
+    )
+    monkeypatch.setattr(
+        SiteManagerModule.config, "data_dir", tmp_path, raising=False
+    )
+
+    class _ContentManager:
+        contents = {"content.json": root}
+
+        def verifyFile(self, inner_path, content, ignore_same=False):
+            signature = content["signs"][record["new_identity"]]
+            return CryptEthereum.verify_manifest(
+                content, signature, record["new_identity"]
+            )
+
+    class _Storage:
+        directory = site_root
+
+        def getPath(self, inner_path):
+            return site_root / Path(*str(inner_path).split("/"))
+
+        def isFile(self, inner_path):
+            return self.getPath(inner_path).is_file()
+
+    parent_site = SimpleNamespace(
+        address=record["new_identity"],
+        content_manager=_ContentManager(),
+        storage=_Storage(),
+    )
+
+    class _AliasSite:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Tampered compatibility data must not create an alias")
+
+    site_module = importlib.import_module("Site.Site")
+    monkeypatch.setattr(site_module, "Site", _AliasSite)
+    monkeypatch.setattr(SiteManagerModule.gevent, "spawn", lambda *args, **kwargs: None)
+
+    manager = SiteManagerModule.SiteManager.__new__(SiteManagerModule.SiteManager)
+    manager.sites = {record["new_identity"]: parent_site}
+    manager.log = logging.getLogger("TestMigrationCompatibility")
+    manager.saveDelayed = lambda: None
+
+    assert manager.registerMigrationCompatibility(parent_site) is False
+    assert record["old_identity"] not in manager.sites
+    assert not (tmp_path / record["old_identity"] / "content.json").exists()
