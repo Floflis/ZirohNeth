@@ -227,6 +227,12 @@ def _signed_v2_compatibility_site(tmp_path, legacy_manifest, record, ethereum_ke
         legacy_manifest, sort_keys=True, ensure_ascii=False
     ).encode("utf-8")
     compatibility_path.write_bytes(serialized)
+    landing_page = CryptMigration.build_migration_landing_page(
+        record["old_identity"], record["new_identity"]
+    )
+    landing_path = site_root / "migration" / "legacy-index.html"
+    landing_path.parent.mkdir(parents=True, exist_ok=True)
+    landing_path.write_bytes(landing_page)
 
     root = {
         "address": destination,
@@ -250,7 +256,11 @@ def _signed_v2_compatibility_site(tmp_path, legacy_manifest, record, ethereum_ke
             CryptMigration.COMPATIBILITY_MANIFEST_PATH: {
                 "blake3": CryptHash.blake3sum(io.BytesIO(serialized)),
                 "size": len(serialized),
-            }
+            },
+            "migration/legacy-index.html": {
+                "blake3": CryptHash.blake3sum(io.BytesIO(landing_page)),
+                "size": len(landing_page),
+            },
         },
     }
     root["signs"] = {
@@ -344,6 +354,7 @@ def test_site_manager_registers_only_a_signed_and_hash_verified_compatibility_se
         )
     )
     assert stored_legacy == legacy_manifest
+    assert (tmp_path / record["old_identity"] / "index.html").read_bytes() == landing_page
     assert len(spawned) == 1
 
 
