@@ -249,3 +249,30 @@ def test_classic_landing_page_is_deterministic_and_escapes_identity_text():
     assert page == CryptMigration.build_migration_landing_page(
         '<old&identity>', '0x<new&identity>'
     )
+
+
+
+def test_verify_imported_source_files_requires_complete_byte_identical_v2_copy(tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    original = b"original v1 asset"
+    (source / "asset.bin").write_bytes(original)
+    (target / "asset.bin").write_bytes(original)
+    manifest = {
+        "files": {
+            "asset.bin": {
+                "sha512": CryptHash.sha512sum(io.BytesIO(original)),
+                "size": len(original),
+            }
+        }
+    }
+    source_site = _source_site(source)
+    target_site = SimpleNamespace(storage=SimpleNamespace(directory=target))
+
+    MigrationWorkflow._verify_imported_source_files(source_site, target_site, manifest)
+
+    (target / "asset.bin").write_bytes(b"changed")
+    with pytest.raises(MigrationWorkflowError, match="does not preserve original file bytes"):
+        MigrationWorkflow._verify_imported_source_files(source_site, target_site, manifest)
