@@ -47,4 +47,4 @@ jobs:
 
       - name: Test migration compatibility and migration workflow
         run: |
-          python -m pytest -q src/Test/TestMigrationCompatibility.py src/Test/TestMigrationWorkflow.py
+          PYTHONPATH=src python -m pytest --noconftest -q src/Test/TestMigrationCompatibility.py src/Test/TestMigrationWorkflow.py
