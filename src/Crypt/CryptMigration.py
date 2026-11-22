@@ -6,6 +6,7 @@ verified migration records; it is not, by itself, a global freshness oracle.
 """
 import copy
 import hashlib
+import html
 import json
 import os
 import tempfile
@@ -119,6 +120,24 @@ def legacy_manifest_digest(manifest):
     return "0x" + hashlib.sha256(serialized).hexdigest()
 
 
+def build_migration_landing_page(old_identity, new_identity):
+    """Build deterministic HTML that unmodified ZeroNet Classic can render."""
+    old_identity = html.escape(str(old_identity), quote=True)
+    new_identity = html.escape(str(new_identity), quote=True)
+    return (
+        "<!doctype html>\n"
+        '<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<title>Site migrated to ZirohNeth</title></head><body>'
+        "<main><h1>This site has migrated</h1>"
+        "<p>This Bitcoin-addressed ZeroNet site is now continued on ZirohNeth.</p>"
+        "<p>Historical Bitcoin identity: <code>" + old_identity + "</code></p>"
+        "<p>New Ethereum identity: <code>" + new_identity + "</code></p>"
+        '<p><a href="https://github.com/ZeroNetPlus/ZirohNeth">'
+        "Learn about ZirohNeth</a></p></main></body></html>\n"
+    ).encode("utf-8")
+
+
 def verify_final_legacy_manifest(record, manifest):
     """Confirm the referenced final manifest is signed by the old Bitcoin key."""
     try:
@@ -144,6 +163,23 @@ def verify_final_legacy_manifest(record, manifest):
         if isinstance(legacy_sequence, bool) or not isinstance(legacy_sequence, int):
             return False
         if legacy_sequence != payload["final_legacy_sequence"]:
+            return False
+        # The historical Bitcoin identity is a minimal Classic landing page.
+        files = manifest.get("files", {})
+        if (
+            not isinstance(files, dict)
+            or set(files) != {"index.html"}
+            or manifest.get("files_optional")
+            or not isinstance(files["index.html"], dict)
+            or not isinstance(files["index.html"].get("sha512"), str)
+            or not files["index.html"]["sha512"]
+            or isinstance(files["index.html"].get("size"), bool)
+            or not isinstance(files["index.html"].get("size"), int)
+            or files["index.html"]["size"] < 0
+            or not isinstance(manifest.get("migration_source_manifest_digest"), str)
+            or len(manifest["migration_source_manifest_digest"]) != 66
+            or not manifest["migration_source_manifest_digest"].startswith("0x")
+        ):
             return False
         signs = manifest.get("signs", {})
         signature = signs.get(payload["old_identity"])
