@@ -13,6 +13,7 @@ from pathlib import Path
 
 from Config import config
 from Crypt import CryptBitcoin, CryptEthereum, CryptMigration, CryptHash
+from util import helper
 
 
 class MigrationWorkflowError(CryptMigration.MigrationError):
@@ -178,10 +179,9 @@ def _write_compatibility_manifest(target_directory, final_manifest, record):
         if CryptMigration.compatibility_manifest_digest(existing) != descriptor["manifest_digest"]:
             raise MigrationWorkflowError("A different compatibility manifest already occupies the reserved path")
     else:
-        with target.open("wb") as stream:
-            stream.write(serialized)
-            stream.flush()
-            os.fsync(stream.fileno())
+        # Atomic replacement prevents restart recovery from observing a partial
+        # compatibility manifest after a process interruption.
+        helper.atomicWrite(target, serialized)
 
     return descriptor
 
