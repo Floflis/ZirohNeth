@@ -76,6 +76,17 @@ def test_prepare_embeds_both_signatures_in_the_final_bitcoin_manifest():
     )
 
     assert manifest["migration"] == record
+    assert set(manifest["files"]) == {"index.html"}
+    landing_page = CryptMigration.build_migration_landing_page(
+        old_identity, record["new_identity"]
+    )
+    assert manifest["files"]["index.html"]["sha512"] == CryptHash.sha512sum(
+        io.BytesIO(landing_page)
+    )
+    assert manifest["files"]["index.html"]["size"] == len(landing_page)
+    assert manifest["migration_source_manifest_digest"] == CryptMigration.legacy_manifest_digest(
+        site.storage.loadJson("content.json")
+    )
     assert record["old_identity"] == old_identity
     assert record["new_identity"] == ethereum.address
     assert CryptMigration.verify_migration(record)
@@ -224,3 +235,17 @@ def test_migration_skips_missing_optional_legacy_files(tmp_path):
     )
 
     assert list(target.iterdir()) == []
+
+
+
+def test_classic_landing_page_is_deterministic_and_escapes_identity_text():
+    page = CryptMigration.build_migration_landing_page(
+        '<old&identity>', '0x<new&identity>'
+    )
+    assert b"This site has migrated" in page
+    assert b"https://github.com/ZeroNetPlus/ZirohNeth" in page
+    assert b"&lt;old&amp;identity&gt;" in page
+    assert b"0x&lt;new&amp;identity&gt;" in page
+    assert page == CryptMigration.build_migration_landing_page(
+        '<old&identity>', '0x<new&identity>'
+    )
