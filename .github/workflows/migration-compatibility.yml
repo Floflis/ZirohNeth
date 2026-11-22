@@ -3,7 +3,7 @@ name: migration compatibility
 on:
   push:
     branches:
-      - feat/migrated-v1-compatibility-seeding
+      - "**"
     paths:
       - ".github/workflows/migration-compatibility.yml"
       - "requirements.txt"
