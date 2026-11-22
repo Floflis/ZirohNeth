@@ -87,6 +87,14 @@ The first remediation tranche is implemented. Focused cryptography/migration tes
 - [ ] Review 0Me, 0dashboard, fid, znapi and the supporting Python networking/crypto repositories listed in docs/ECOSYSTEM-COMPATIBILITY.md.
 - [ ] Keep the ecosystem inventory current when upstream sibling repositories receive relevant changes.
 
+## Content filtering and blocklist inheritance
+
+- [ ] Audit the inherited ContentFilter implementation and define signed, versioned shared-list metadata, publisher-key lifecycle and safe update behavior.
+- [ ] Implement effective local + enabled-community block evaluation consistently across navigation, lookup, cache, download, pinning and serving paths.
+- [ ] Inherit a v1 block onto a v2 successor only through a cryptographically verified migration relationship; define a bounded proof-resolution path when v2 is visited first.
+- [ ] Preserve per-list provenance so removing one list cannot erase another list's block or a direct local block.
+- [ ] Add tests for v1→v2 inherited blocks, invalid/missing proofs, multiple lists/ancestors, list updates/removal, cached sites and peer-serving behavior.
+
 ## Release and maintenance
 
 - [ ] Run unit/integration tests on supported Python versions and operating systems.
