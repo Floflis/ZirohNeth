@@ -6,53 +6,101 @@
 
 ## Problem
 
-A site migrated from a Bitcoin-addressed Content v1 identity to an Ethereum-addressed Content v2 identity may still be visited through its original Bitcoin address. The migration protocol in the Content v2 workstream advertises the Ethereum destination in the terminal, signed v1 `content.json`, but the new v2 site/peers must reliably retain and serve that legacy manifest to visitors using the old address.
+A site migrated from a Bitcoin-addressed Content v1 identity to an Ethereum-addressed
+Content v2 identity must remain understandable to unmodified ZeroNet Classic clients.
+Those clients cannot parse the dual-signed migration envelope or follow an Ethereum
+identity. Merely retaining the terminal v1 `content.json` does not provide a usable
+migration experience: the classic client needs a normal `index.html` to render.
 
-This is a compatibility-seeding requirement, distinct from the migration proof and from v2 manifest signing.
+The historical Bitcoin identity therefore becomes a deliberately minimal, signed
+migration landing page, while the complete site content is carried by the Ethereum v2
+identity.
 
 ## Goal
 
-When a v2 site is seeded by a peer, the seeding peer must also make the site's authorized terminal v1 compatibility manifest available for the original Bitcoin address, where such a migration manifest exists. This lets v1-address visitors retrieve the migration metadata instead of depending on a single migration publisher.
+When the owner authorizes migration with the Bitcoin private key, the migration
+workflow must produce and publish exactly two files for the historical Bitcoin
+identity:
+
+1. the terminal Bitcoin-signed `content.json`, whose signed file list contains only
+   `index.html`;
+2. the generated `index.html` migration landing page, explaining that the site moved
+   and linking to https://github.com/ZeroNetPlus/ZirohNeth.
+
+The Bitcoin signature on `content.json` authenticates the HTML through its signed
+SHA-512 digest and size. The migration envelope binds the terminal manifest to the
+Ethereum destination. Every peer seeding the v2 site must also seed these two
+historical v1 files under the old Bitcoin address. The complete original site content
+must be retained under the v2 identity, not discarded when the v1 identity is reduced
+to its landing page.
 
 ## Scope and compatibility boundaries
 
-- Preserve the original Bitcoin identity/address and its signature verification rules for v1.
-- Preserve the Ethereum identity/address and EIP-712/BLAKE3 verification rules for v2.
-- The v1 manifest must be the exact, verified terminal migration manifest authorized by the Bitcoin identity, not a reconstructed, unsigned, or arbitrary older manifest.
-- Do not generate or fabricate migration proofs, or infer a migration merely from an Ethereum site sharing content.
-- Do not permit a v2 peer to sign or mutate a manifest on behalf of the historical Bitcoin identity.
-- Legacy clients cannot parse the v2 migration envelope. A client-side redirect requires a compatible migration-aware client; a site-level redirect/shim is a separate UX compatibility mechanism and must be evaluated explicitly.
-- If no valid terminal v1 migration manifest is available, normal v2 seeding continues and no v1 migration data is advertised.
+- Preserve the original Bitcoin identity/address and v1 signature verification rules.
+- Preserve the Ethereum identity/address and EIP-712/BLAKE3 verification rules.
+- The Bitcoin-signed terminal `content.json` must list exactly one required file:
+  `index.html`. No original site assets or other files remain part of the historical
+  Bitcoin version.
+- Generate the landing page as part of migration. It must clearly state that the site
+  has migrated and link to the ZirohNeth project at
+  https://github.com/ZeroNetPlus/ZirohNeth.
+- The Bitcoin signature authenticates the landing page indirectly but unambiguously:
+  the signed manifest commits to its SHA-512 digest and byte size. The owner must
+  authorize both the terminal manifest and its HTML payload in the same migration
+  operation.
+- Copy and verify the complete pre-migration site content into the Ethereum v2 site
+  before replacing/removing any legacy files. Do not lose original assets during the
+  v1-to-v2 transition.
+- A v2 peer serving a migrated site must expose both terminal v1 files under the
+  historical Bitcoin address. It must not expose the original v1 site's old assets
+  under that address.
+- Do not generate or fabricate migration proofs, or infer migration from shared content.
+- Do not permit a v2 peer to sign or mutate a manifest on behalf of the historical
+  Bitcoin identity.
+- Legacy ZeroNet Classic clients need no migration-envelope support: they render the
+  signed landing page as an ordinary v1 site. The link is informational; the classic
+  client itself does not automatically navigate to the Ethereum site.
+- Important limitation: the owner still possesses the Bitcoin private key and can use
+  another v1 client to sign/publish a competing Bitcoin manifest. The protocol cannot
+  revoke that key or prevent this. Such a post-migration signature can fork/conflict
+  the historical v1 identity and undermine the migration view on both v1 and v2
+  clients. Detect and report conflicting post-migration manifests; never silently
+  overwrite the pinned migration checkpoint.
+- The original ZeroNet network continues to seed ordinary v1 content. Explicit
+  tracker/DHT withdrawal by the v2 alias is not a requirement: the historical address
+  remains a v1 network concern, while v2 peers provide redundant availability for the
+  signed migration landing page.
 
 ## Implementation snapshot (PR #23)
 
-The current implementation stores the exact terminal Bitcoin-signed v1 manifest at
-`migration/legacy-content.json` inside the Ethereum v2 site. The signed v2 root carries
-a descriptor binding the two identities, the manifest digest, the compatibility path,
-and the digest of the dual-signed migration proof. The file must be a required BLAKE3
-entry in the v2 root; an ignore rule that excludes it makes migration fail.
+PR #23 currently implements the earlier compatibility-manifest transport design:
+it stores and verifies the terminal v1 `content.json` and creates a historical
+serving alias. It does **not yet implement** the newly required signed HTML landing
+page, the two-file-only historical manifest, or preservation of all original content
+under v2 while pruning the v1 identity. The PR must not be considered complete until
+those runtime changes and their tests are added.
 
-A peer registers a historical Bitcoin-address serving alias only after it verifies
-the v2 EIP-712 root, the compatibility file's BLAKE3 digest and size, the terminal v1
-manifest and Bitcoin signature, the dual-signed migration record, and the local
-migration checkpoint. The alias stores and serves the terminal v1 root, follows the
-Ethereum site's serving state, and is announced only after verification, durable
-persistence, and confirmation that the parent is currently serving. When the parent
-stops serving, the alias refuses requests; the existing tracker/DHT protocol has no
-explicit withdrawal operation in this implementation, so stale remote advertisements
-may remain until their normal network expiry. Migration-aware clients can then use the
-existing old-address resolver.
+The intended new flow is:
 
-**Compatibility boundary:** this serves the terminal v1 `content.json` under the old
-address, allowing an updated client to validate the migration and resolve to Ethereum.
-An unmodified legacy client can retrieve that file but does not understand the migration
-envelope and will not automatically redirect. A signed site-level shim is not part of
-this implementation.
+1. Snapshot the complete original v1 manifest and its authorized file set.
+2. Stage and verify all original site files into the Ethereum v2 site.
+3. Generate the migration landing-page HTML and construct a terminal Bitcoin
+   `content.json` whose only file entry is that HTML.
+4. Embed the dual-signed migration proof, sign the terminal manifest with the
+   Bitcoin key, and publish the two-file historical site.
+5. Store and serve exactly those two files from every eligible v2 peer under the
+   historical Bitcoin address.
+6. On clients, recognize a post-migration competing Bitcoin manifest as a conflict
+   with the pinned migration checkpoint. The key itself cannot be revoked.
 
-**Evidence state:** focused unit tests and a PR-triggered workflow have been added,
-but no test result is claimed yet. Explicit tracker/DHT withdrawal, multi-node,
-restart/reseed, and separate legacy-client integration evidence is still pending.
-Therefore no checkbox below is closed by PR #23.
+**Seeding lifecycle:** the original ZeroNet Classic network continues to seed the v1
+landing page normally. The v2 compatibility alias does not need a separate tracker/DHT
+withdrawal mechanism for this design; its serving lifecycle follows the v2 parent.
+
+**Evidence state:** the above is the target contract, not a claim that PR #23 already
+implements it. Focused tests exist for the earlier manifest-only design, but the
+updated landing-page, v1 pruning, full-content v2 preservation, conflict detection,
+and classic-client rendering tests remain to be implemented and executed.
 
 ## Implementation tasklist
 
