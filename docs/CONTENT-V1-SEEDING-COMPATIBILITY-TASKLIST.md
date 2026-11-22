@@ -2,7 +2,7 @@
 
 ## Status
 
-**Documentation / implementation contract only.** This checklist does not claim that v1 manifest replication or redirect behavior is implemented.
+**Implementation in review:** [PR #23](https://github.com/Floflis/ZirohNeth/pull/23) adds the first runtime implementation and focused tests. The PR is still a draft and its tests have not yet been executed. All task checkboxes remain open until the evidence requirements in `AGENTS.md` are met.
 
 ## Problem
 
@@ -23,6 +23,32 @@ When a v2 site is seeded by a peer, the seeding peer must also make the site's a
 - Do not permit a v2 peer to sign or mutate a manifest on behalf of the historical Bitcoin identity.
 - Legacy clients cannot parse the v2 migration envelope. A client-side redirect requires a compatible migration-aware client; a site-level redirect/shim is a separate UX compatibility mechanism and must be evaluated explicitly.
 - If no valid terminal v1 migration manifest is available, normal v2 seeding continues and no v1 migration data is advertised.
+
+## Implementation snapshot (PR #23)
+
+The current implementation stores the exact terminal Bitcoin-signed v1 manifest at
+`migration/legacy-content.json` inside the Ethereum v2 site. The signed v2 root carries
+a descriptor binding the two identities, the manifest digest, the compatibility path,
+and the digest of the dual-signed migration proof. The file must be a required BLAKE3
+entry in the v2 root; an ignore rule that excludes it makes migration fail.
+
+A peer registers a historical Bitcoin-address serving alias only after it verifies
+the v2 EIP-712 root, the compatibility file's BLAKE3 digest and size, the terminal v1
+manifest and Bitcoin signature, the dual-signed migration record, and the local
+migration checkpoint. The alias stores and serves the terminal v1 root, follows the
+Ethereum site's serving state, and is announced only after verification and durable
+persistence. Migration-aware clients can then use the existing old-address resolver.
+
+**Compatibility boundary:** this serves the terminal v1 `content.json` under the old
+address, allowing an updated client to validate the migration and resolve to Ethereum.
+An unmodified legacy client can retrieve that file but does not understand the migration
+envelope and will not automatically redirect. A signed site-level shim is not part of
+this implementation.
+
+**Evidence state:** focused unit tests have been added and a PR-triggered workflow has
+been added, but no test result is claimed yet. Multi-node, restart/reseed, and separate
+legacy-client integration evidence is still pending. Therefore no checkbox below is
+closed by PR #23.
 
 ## Implementation tasklist
 
