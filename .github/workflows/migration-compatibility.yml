@@ -1,6 +1,16 @@
 name: migration compatibility
 
 on:
+  push:
+    branches:
+      - feat/migrated-v1-compatibility-seeding
+    paths:
+      - ".github/workflows/migration-compatibility.yml"
+      - "requirements.txt"
+      - "src/Crypt/**"
+      - "src/Site/**"
+      - "src/Test/TestMigrationCompatibility.py"
+      - "src/Test/TestMigrationWorkflow.py"
   pull_request:
     paths:
       - ".github/workflows/migration-compatibility.yml"
