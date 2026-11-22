@@ -49,6 +49,16 @@ def prepare_migration(site, bitcoin_private_key, ethereum_private_key):
         raise MigrationWorkflowError(
             "Included/user manifests must be migrated before this site can be transferred"
         )
+    reserved_paths = {
+        CryptMigration.COMPATIBILITY_MANIFEST_PATH,
+        "migration/legacy-index.html",
+    }
+    for collection_name in ("files", "files_optional"):
+        collisions = reserved_paths.intersection(current.get(collection_name, {}))
+        if collisions:
+            raise MigrationWorkflowError(
+                "Original site uses a reserved migration path: " + sorted(collisions)[0]
+            )
 
     # Sign the terminal legacy body once to establish its final sequence and
     # timestamp. The migration envelope is excluded from its body digest to
