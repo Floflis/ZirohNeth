@@ -460,3 +460,77 @@ def test_historical_alias_serving_tracks_parent_and_global_offline_state(monkeyp
     state["serving"] = True
     monkeypatch.setattr(site_module.config, "offline", True, raising=False)
     assert alias.isServing() is False
+
+
+
+def test_site_manager_reports_competing_newer_bitcoin_manifest_without_overwriting_checkpoint(
+    tmp_path, monkeypatch
+):
+    """A later Bitcoin-signed v1 root is a conflict, never a silent replacement."""
+    import importlib
+    from Site import SiteManager as SiteManagerModule
+
+    ethereum_account = Account.create()
+    bitcoin_key = CryptBitcoin.newPrivatekey()
+    old_identity = CryptBitcoin.privatekeyToAddress(bitcoin_key)
+    source = _Site(old_identity, bitcoin_key)
+    terminal_manifest, record = MigrationWorkflow.prepare_migration(
+        source, bitcoin_key, "eth:" + ethereum_account.key.hex()
+    )
+    site_root, root = _signed_v2_compatibility_site(
+        tmp_path, terminal_manifest, record, ethereum_account.key
+    )
+
+    # Simulate a later manifest signed by the same Bitcoin key from another
+    # classic client. Its higher sequence must not replace the terminal pin.
+    competing = {
+        "address": old_identity,
+        "inner_path": "content.json",
+        "modified": terminal_manifest["modified"] + 1,
+        "signs_required": 1,
+        "files": {},
+    }
+    competing["signs"] = {
+        old_identity: CryptBitcoin.sign(
+            json.dumps(competing, sort_keys=True), bitcoin_key
+        )
+    }
+    legacy_directory = tmp_path / old_identity
+    legacy_directory.mkdir()
+    competing_path = legacy_directory / "content.json"
+    competing_path.write_text(json.dumps(competing), encoding="utf-8")
+
+    monkeypatch.setattr(SiteManagerModule.config, "data_dir", tmp_path, raising=False)
+
+    class _ContentManager:
+        contents = {"content.json": root}
+
+        def verifyFile(self, inner_path, content, ignore_same=False):
+            signature = content["signs"][record["new_identity"]]
+            return CryptEthereum.verify_manifest(
+                content, signature, record["new_identity"]
+            )
+
+    class _Storage:
+        directory = site_root
+
+        def getPath(self, inner_path):
+            return site_root / Path(*str(inner_path).split("/"))
+
+        def isFile(self, inner_path):
+            return self.getPath(inner_path).is_file()
+
+    parent_site = SimpleNamespace(
+        address=record["new_identity"],
+        content_manager=_ContentManager(),
+        storage=_Storage(),
+    )
+    manager = SiteManagerModule.SiteManager.__new__(SiteManagerModule.SiteManager)
+    manager.sites = {record["new_identity"]: parent_site}
+    manager.log = logging.getLogger("TestMigrationCompatibility")
+    manager.saveDelayed = lambda: None
+
+    assert manager.registerMigrationCompatibility(parent_site) is False
+    assert json.loads(competing_path.read_text(encoding="utf-8")) == competing
+    assert old_identity not in manager.sites
+    assert not (tmp_path / "migration-checkpoints" / (old_identity + ".json")).exists()
