@@ -3,6 +3,7 @@
 import copy
 import io
 import json
+import logging
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -181,3 +182,33 @@ def test_compatibility_writer_refuses_to_replace_another_manifest(tmp_path):
         _write_compatibility_manifest(tmp_path, legacy_manifest, record)
 
     assert json.loads(path.read_text(encoding="utf-8")) == {"address": "attacker"}
+
+
+
+def test_migration_aware_site_manager_resolves_old_address_from_terminal_manifest(
+    tmp_path, monkeypatch
+):
+    """A client with the terminal manifest locally resolves the old URL to v2."""
+    from Site import SiteManager as SiteManagerModule
+
+    legacy_manifest, record = _prepared_migration()
+    monkeypatch.setattr(
+        SiteManagerModule.config, "data_dir", tmp_path, raising=False
+    )
+
+    legacy_directory = tmp_path / record["old_identity"]
+    legacy_directory.mkdir()
+    (legacy_directory / "content.json").write_text(
+        json.dumps(legacy_manifest, sort_keys=True), encoding="utf-8"
+    )
+
+    manager = SiteManagerModule.SiteManager.__new__(SiteManagerModule.SiteManager)
+    manager.log = logging.getLogger("TestMigrationCompatibility")
+
+    assert manager.resolveMigrationAddress(record["old_identity"]) == record["new_identity"]
+
+    checkpoint = CryptMigration.CheckpointStore(
+        tmp_path / "migration-checkpoints" / (record["old_identity"] + ".json")
+    ).latest()
+    assert checkpoint is not None
+    assert CryptMigration.record_digest(checkpoint) == CryptMigration.record_digest(record)
