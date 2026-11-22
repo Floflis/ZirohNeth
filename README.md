@@ -256,18 +256,17 @@ who wants to migrate. Don't hesitate to ask.
 Make sure to tell people why do you use 0net and this fork in particular! People
 need to know their alternatives.
 
-### Financially support maintainers
+### Project maintainers
 
-This fork was created and maintained by @caryoscelus. You can
-see ways to donate to them on https://caryoscelus.github.io/donate/ (or check
-sidebar if you're reading this on github for more ways). As our team grows, we
-will create team accounts on friendly crowdfunding platforms as well.
+ZirohNeth is maintained by **Perla** together with the **[Floflis organization](https://github.com/Floflis)**. Project direction, development, and maintenance are coordinated by the project owner and the organization.
 
-If you want to make sure your donation is recognized as donation for this
-project, there is a dedicated bitcoin address for that, too:
-1Kjuw3reZvxRVNs27Gen7jPJYCn6LY7Fg6. And if you want to stay more anonymous and
-private, a Monero wallet:
-4AiYUcqVRH4C2CVr9zbBdkhRnJnHiJoypHEsq4N7mQziGUoosPCpPeg8SPr87nvwypaRzDgMHEbWWDekKtq8hm9LBmgcMzC
+### Financially support the project
 
-If you want to donate in a different way, feel free to contact maintainer or
-create an issue
+Donations help support the continued development and maintenance of ZirohNeth. You can contribute using any of the following addresses published for `perlarosa.eth`:
+
+- **Ethereum:** `0x24e3e4b8b8cF49c80D158bcD99E11BC3a0FBdFc0`
+- **Starknet:** `0x0190f7c163e59972BEf1A973283154B1CB4f7Bb813B5999AD79BE037BB08CFDb`
+- **Solana:** `Aqdqz9m4gE5sQ7Rd5WVpLeUtq9X7P7BGPDv3qV4Xcqnr`
+- **Bitcoin:** `bc1qknuzznmva34gw5u6sfjemeufqd6gyvt7srxa3v`
+
+For other ways to support or get involved, contact the maintainers or open an issue in this repository.
