@@ -32,6 +32,47 @@ The following are known official ZeroNet sites/projects to audit. Repository own
 
 This list is an initial known-project list, not a complete census of official or historically official sites. The inventory phase should search organization repositories, upstream HelloZeroNet repositories, site source manifests, and references in the client/docs; include other official sites discovered (e.g., admin tools, demos, or supporting sites) and exclude community sites unless explicitly adopted as official.
 
+## Benefits and trade-offs of migrating to TypeScript
+
+The migration is not automatically beneficial for every legacy site. These are expected benefits and costs to evaluate per repository, based on maintenance activity, complexity, contributors, and build/deployment constraints.
+
+### Expected advantages
+
+- **Static checking:** catches many mistakes in property names, function signatures, incompatible values, and API payload handling before runtime.
+- **Safer refactoring:** editor/compiler feedback makes renaming, moving modules, changing interfaces, and tracing dependencies less error-prone.
+- **Improved IDE tooling:** autocomplete, navigation, references, inline diagnostics, and documentation can improve contributor productivity.
+- **Explicit contracts:** types can document ZeroFrame, site APIs, messages, callbacks, and shared data structures more precisely than implicit CoffeeScript conventions.
+- **Maintainability and onboarding:** explicit types and modern tooling can make unfamiliar code easier to inspect, especially when original authors are no longer active.
+- **Incremental adoption:** TypeScript can coexist with JavaScript and, depending on build setup, allow staged conversion rather than a big-bang rewrite.
+- **Ecosystem compatibility:** TypeScript integrates with current tooling, libraries, test frameworks, and bundlers, potentially reducing friction for future maintenance.
+
+### Costs, risks, and disadvantages
+
+- **Migration effort:** existing CoffeeScript idioms, implicit returns, comprehensions, bound functions, destructuring, and class patterns require careful manual translation and review.
+- **Build complexity:** adding a compiler, configuration, type declarations, and possibly a bundler step can make builds more complex and introduce toolchain dependencies.
+- **Typing legacy APIs:** older ZeroNet APIs, browser globals, dynamic plugin interfaces, and message payloads may lack declarations. Types can initially be incomplete and require declaration work.
+- **False confidence:** TypeScript types are erased at runtime; they do not validate network data, plugin input, or untrusted messages unless runtime validation is added separately.
+- **Compatibility risks:** a changed compiler target, module format, polyfill, or dependency may affect supported browsers or the legacy runtime. Preserve existing compatibility deliberately.
+- **Temporary productivity slowdown:** contributors unfamiliar with TypeScript may need training; conversion can slow feature work during the transition.
+- **Generated-code / source-map drift:** if build outputs are checked in, generated files and source maps must remain consistent and reproducible.
+- **Scope creep temptation:** conversion can invite redesigns or dependency upgrades. Combining these increases regression risk and makes review harder.
+- **Not all repositories justify it:** inactive, archived, tiny, or upstream-only projects may receive little benefit relative to migration cost; such cases should be assessed and explicitly deferred rather than converted solely for uniformity.
+
+### Decision and mitigations
+
+Proceed as a **gradual, evidence-based migration**, not a blanket rewrite. Prioritize actively maintained sites with frequent changes, complex code, contributors, or high regression risk. Pilot on a small ZeroHello/dashboard module first. Before converting each site, compare the expected maintenance benefit with conversion and toolchain cost. Mitigate risk by preserving behavior, keeping PRs small, maintaining the existing build path until the pilot proves a replacement, running baseline tests and UI/API checks, reviewing generated output, and keeping deferred/archived sites documented. Where practical, validate external data at runtime; static typing alone is not a security or runtime correctness guarantee.
+
+### Evaluation questions for each site
+
+- Is the site maintained or likely to receive changes?
+- How much CoffeeScript remains, and how complex is the code?
+- Are build/test/CI paths reproducible today?
+- Are APIs and dynamic data interfaces understood and typeable?
+- What browser/runtime versions must remain supported?
+- Is migration effort proportionate to expected maintenance value?
+- Could a small pilot demonstrate value without a full conversion commitment?
+
+
 ## Migration phases
 
 ### Phase 0 — Discovery and baseline
