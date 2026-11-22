@@ -36,8 +36,12 @@ A peer registers a historical Bitcoin-address serving alias only after it verifi
 the v2 EIP-712 root, the compatibility file's BLAKE3 digest and size, the terminal v1
 manifest and Bitcoin signature, the dual-signed migration record, and the local
 migration checkpoint. The alias stores and serves the terminal v1 root, follows the
-Ethereum site's serving state, and is announced only after verification and durable
-persistence. Migration-aware clients can then use the existing old-address resolver.
+Ethereum site's serving state, and is announced only after verification, durable
+persistence, and confirmation that the parent is currently serving. When the parent
+stops serving, the alias refuses requests; the existing tracker/DHT protocol has no
+explicit withdrawal operation in this implementation, so stale remote advertisements
+may remain until their normal network expiry. Migration-aware clients can then use the
+existing old-address resolver.
 
 **Compatibility boundary:** this serves the terminal v1 `content.json` under the old
 address, allowing an updated client to validate the migration and resolve to Ethereum.
@@ -45,10 +49,10 @@ An unmodified legacy client can retrieve that file but does not understand the m
 envelope and will not automatically redirect. A signed site-level shim is not part of
 this implementation.
 
-**Evidence state:** focused unit tests have been added and a PR-triggered workflow has
-been added, but no test result is claimed yet. Multi-node, restart/reseed, and separate
-legacy-client integration evidence is still pending. Therefore no checkbox below is
-closed by PR #23.
+**Evidence state:** focused unit tests and a PR-triggered workflow have been added,
+but no test result is claimed yet. Explicit tracker/DHT withdrawal, multi-node,
+restart/reseed, and separate legacy-client integration evidence is still pending.
+Therefore no checkbox below is closed by PR #23.
 
 ## Implementation tasklist
 
