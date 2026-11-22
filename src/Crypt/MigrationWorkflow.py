@@ -157,6 +157,34 @@ def _copy_manifest_files(source_site, target_site, manifest, target_directory=No
                 )
 
 
+def _verify_imported_source_files(source_site, target_site, manifest):
+    """Verify every available original v1 file survived the Ethereum import."""
+    source_root = source_site.storage.directory.resolve()
+    target_root = target_site.storage.directory.resolve()
+
+    for collection_name in ("files", "files_optional"):
+        for relative_name, file_info in manifest.get(collection_name, {}).items():
+            relative = Path(relative_name)
+            if not source_site.content_manager.isValidRelativePath(relative):
+                raise MigrationWorkflowError("Unsafe path in original manifest: " + relative_name)
+            source = (source_root / relative).resolve()
+            target = (target_root / relative).resolve()
+            if not source.is_relative_to(source_root) or not target.is_relative_to(target_root):
+                raise MigrationWorkflowError("Original manifest path escapes the site directory")
+            if not source.is_file():
+                if collection_name == "files_optional":
+                    continue
+                raise MigrationWorkflowError("Original required file is missing: " + relative_name)
+            if not target.is_file():
+                raise MigrationWorkflowError("Original file was not preserved in Ethereum: " + relative_name)
+            with target.open("rb") as stream:
+                actual_hash = CryptHash.sha512sum(stream)
+                actual_size = stream.tell()
+            if actual_hash != file_info.get("sha512") or actual_size != file_info.get("size"):
+                raise MigrationWorkflowError("Ethereum import does not preserve original file bytes: " + relative_name)
+
+
+
 def _migration_journal(record):
     """Return the exact identity tuple that authorizes resuming a staged import."""
     return {
@@ -320,6 +348,7 @@ def _register_ethereum_site(
         if existing.get("signs") or existing.get("sign"):
             if not new_site.content_manager.verifyFile("content.json", existing, ignore_same=False):
                 raise MigrationWorkflowError("The existing Ethereum destination failed verification")
+            _verify_imported_source_files(site, new_site, source_manifest)
             _ensure_compatibility_manifest(
                 new_site, final_manifest, record, ethereum_private_key
             )
@@ -397,6 +426,9 @@ def _register_ethereum_site(
                 raise MigrationWorkflowError("Ethereum destination changed during migration")
             target_root.rmdir()
         os.replace(stage_root, target_root)
+
+    # Re-check the promoted copy before signing/publishing the Ethereum root.
+    _verify_imported_source_files(site, new_site, source_manifest)
 
     # Keep the local journal until the signed destination has been published.
     imported = _ensure_compatibility_manifest(
