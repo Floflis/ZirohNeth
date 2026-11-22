@@ -313,6 +313,9 @@ def test_site_manager_registers_only_a_signed_and_hash_verified_compatibility_se
             self.settings = dict(settings or {})
             self.announced = False
 
+        def isServing(self):
+            return True
+
         def announce(self, *args, **kwargs):
             self.announced = True
 
