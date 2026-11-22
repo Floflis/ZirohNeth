@@ -215,6 +215,19 @@ def _ensure_compatibility_manifest(site, final_manifest, record, ethereum_privat
         )
         root = site.storage.loadJson("content.json")
 
+    # The reserved path must be a required v2 file. A site's legacy ignore
+    # expression must not silently omit the compatibility object from peers.
+    published_file_info = root.get("files", {}).get(CryptMigration.COMPATIBILITY_MANIFEST_PATH)
+    if (
+        not isinstance(published_file_info, dict)
+        or published_file_info.get("blake3") != actual_hash
+        or published_file_info.get("size") != actual_size
+        or CryptMigration.COMPATIBILITY_MANIFEST_PATH in root.get("files_optional", {})
+    ):
+        raise MigrationWorkflowError(
+            "The terminal v1 compatibility manifest was not included as a required BLAKE3 v2 file"
+        )
+
     if (
         not CryptMigration.verify_compatibility_manifest(root, final_manifest, site.address)
         or not site.content_manager.verifyFile("content.json", root, ignore_same=False)
