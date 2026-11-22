@@ -1,0 +1,40 @@
+name: migration compatibility
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/migration-compatibility.yml"
+      - "requirements.txt"
+      - "src/Crypt/**"
+      - "src/Site/**"
+      - "src/Test/TestMigrationCompatibility.py"
+      - "src/Test/TestMigrationWorkflow.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install project and test dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          python -m pip install -r requirements.txt
+          python -m pip install pytest mock
+
+      - name: Test migration compatibility and migration workflow
+        run: |
+          python -m pytest -q src/Test/TestMigrationCompatibility.py src/Test/TestMigrationWorkflow.py
