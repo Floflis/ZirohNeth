@@ -25,6 +25,20 @@ class TestFileRequest:
         response = connection.request("getFile", {"site": site.address, "inner_path": "content.json", "location": 0, "file_size": site.storage.getSize("content.json")})
         assert b"sign" in response["body"]
 
+        # A v3 root manifest still bootstraps over ZeroNet, but its files do not.
+        original_content = site.content_manager.contents["content.json"]
+        original_version = original_content.get("content_version", 1)
+        original_content["content_version"] = 3
+        root_response = connection.request(
+            "getFile", {"site": site.address, "inner_path": "content.json", "location": 0}
+        )
+        assert b"sign" in root_response["body"]
+        v3_file_response = connection.request(
+            "getFile", {"site": site.address, "inner_path": "index.html", "location": 0}
+        )
+        assert "exclusively through Iroh" in v3_file_response["error"]
+        original_content["content_version"] = original_version
+
         # Invalid file
         response = connection.request("getFile", {"site": site.address, "inner_path": "invalid.file", "location": 0})
         assert "File read error" in response["error"]

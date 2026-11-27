@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from Crypt import CryptBitcoin
+from Crypt import CryptBitcoin, CryptEthereum
 from Content.ContentManager import VerifyError, SignError
 from util.SafeRe import UnsafePatternError
 
@@ -131,6 +131,47 @@ class TestContent:
         assert len(content_optional["files_optional"]) > 0
         assert len(site.content_manager.hashfield) == len(content_optional["files_optional"])  # Hashed optional files should be added to hashfield
         assert len(content_nooptional["files"]) > len(content_optional["files"])
+
+    def testV3RootManifestRequiresValidIrohProviderAndSignature(self, site, monkeypatch):
+        from eth_account import Account
+
+        account = Account.create()
+        monkeypatch.setattr(site, "address", account.address)
+        site.content_manager.contents.pop("content.json", None)
+
+        manifest = {
+            "content_version": 3,
+            "hash_algorithm": "blake3-256",
+            "identity_scheme": CryptEthereum.IDENTITY_SCHEME,
+            "signature_scheme": CryptEthereum.V3_SIGNATURE_SCHEME,
+            "address": account.address,
+            "inner_path": "content.json",
+            "sequence": 1,
+            "previous_update_digest": CryptEthereum.ZERO_DIGEST,
+            "modified": int(time.time()),
+            "files": {
+                "index.html": {"blake3": "00" * 32, "size": 0}
+            },
+            "iroh": {
+                "providers": [
+                    {"node_id": "a" * 64, "relay_url": None, "direct_addresses": []}
+                ]
+            },
+        }
+        manifest["signs"] = {
+            account.address: CryptEthereum.sign_manifest(manifest, "eth:" + account.key.hex())
+        }
+        assert site.content_manager.verifyFile("content.json", manifest, ignore_same=False)
+        assert site.settings["content_version"] == 3
+
+        invalid = dict(manifest)
+        invalid.pop("signs", None)
+        invalid["iroh"] = {"providers": []}
+        invalid["signs"] = {
+            account.address: CryptEthereum.sign_manifest(invalid, "eth:" + account.key.hex())
+        }
+        with pytest.raises(VerifyError, match="Iroh providers"):
+            site.content_manager.verifyFile("content.json", invalid, ignore_same=False)
 
     def testFileInfo(self, site):
         assert "sha512" in site.content_manager.getFileInfo("index.html")

@@ -8,6 +8,27 @@ TEST_DATA_PATH = "src/Test/testdata"
 
 @pytest.mark.usefixtures("resetSettings")
 class TestSite:
+    def testV3FilesBypassLegacyWorkerQueue(self, site, monkeypatch):
+        site.content_manager.contents["content.json"] = {
+            "content_version": 3,
+            "iroh": {
+                "providers": [
+                    {"node_id": "a" * 64, "relay_url": None, "direct_addresses": []}
+                ]
+            },
+            "files": {},
+        }
+        routed = []
+        monkeypatch.setattr(site, "needIrohFile", lambda path, **kwargs: routed.append(path) or True)
+        monkeypatch.setattr(
+            site.worker_manager,
+            "addTask",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy worker queue used")),
+        )
+
+        assert site.needFile("index.html", update=True, blocking=True) is True
+        assert routed == ["index.html"]
+
     def testClone(self, site):
         assert site.storage.directory == TEST_DATA_PATH + "/1TeSTvb4w2PWE81S2rEELgmX2GCCExQGT"
 

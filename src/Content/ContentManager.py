@@ -841,10 +841,39 @@ class ContentManager:
             # Do not carry a legacy Bitcoin multisigner attestation into an EIP-712 manifest.
             new_content.pop("signers_sign", None)
             previous_digest = CryptEthereum.manifest_digest(content).hex() if content.get("modified") else "00" * 32
-            new_content["content_version"] = 2
+            requested_version = int(content.get("content_version", 2))
+            if requested_version not in (2, 3):
+                raise SignError("Unsupported Ethereum content version: %s" % requested_version)
+            if requested_version == 3:
+                if inner_path != Path("content.json"):
+                    raise SignError("Native Iroh v3 currently supports only the root content.json")
+                if int(content.get("content_version", 0)) == 2:
+                    raise SignError(
+                        "V2-to-v3 requires an authenticated VersionTransition and cannot be implicit"
+                    )
+                try:
+                    from Iroh.IrohBridgeManager import IrohBridgeManager
+                    local_provider = IrohBridgeManager.instance().node_addr()
+                except Exception as err:
+                    raise SignError("Unable to start the native Iroh bridge: %s" % err)
+                iroh_record = dict(new_content.get("iroh") or {})
+                providers = list(iroh_record.get("providers") or [])
+                providers = [
+                    provider for provider in providers
+                    if provider.get("node_id") != local_provider.get("node_id")
+                ]
+                providers.insert(0, local_provider)
+                iroh_record["providers"] = providers[:16]
+                new_content["iroh"] = iroh_record
+
+            new_content["content_version"] = requested_version
             new_content["hash_algorithm"] = "blake3-256"
             new_content["identity_scheme"] = CryptEthereum.IDENTITY_SCHEME
-            new_content["signature_scheme"] = CryptEthereum.SIGNATURE_SCHEME
+            new_content["signature_scheme"] = (
+                CryptEthereum.SIGNATURE_SCHEME
+                if requested_version == 2
+                else CryptEthereum.V3_SIGNATURE_SCHEME
+            )
             new_content["sequence"] = int(content.get("sequence", 0)) + 1
             new_content["previous_update_digest"] = "0x" + previous_digest
 
@@ -865,7 +894,7 @@ class ContentManager:
         if inner_path == Path('content.json') and privatekey_address == self.site.address:
             # The first Ethereum implementation intentionally supports one EOA signer.
             if use_ethereum and len(valid_signers) > 1:
-                raise SignError("Ethereum v2 currently supports a single EOA signer; multisig is not implemented")
+                raise SignError("Ethereum v2/v3 currently supports a single EOA signer; multisig is not implemented")
             if not use_ethereum:
                 signers_data = "%s:%s" % (new_content["signs_required"], ",".join(valid_signers))
                 new_content["signers_sign"] = CryptBitcoin.sign(str(signers_data), privatekey)
@@ -896,6 +925,11 @@ class ContentManager:
             self.log.info("Saving to %s..." % inner_path)
             self.site.storage.writeJson(inner_path, new_content)
             self.contents[str(inner_path)] = new_content
+            if use_ethereum and int(new_content.get("content_version", 1)) == 3:
+                try:
+                    self.site.seedIrohContent(new_content)
+                except Exception as err:
+                    raise SignError("V3 manifest was signed but Iroh seeding failed: %s" % err)
 
         self.log.info("File %s signed!" % inner_path)
 
@@ -984,26 +1018,52 @@ class ContentManager:
                 self.site.settings["migration_state"] = "not_migrated"
 
         content_version = int(content.get("content_version", 1))
-        if content_version == 2:
+        if content_version in (2, 3):
             # A valid EIP-712 signature authenticates an update, not its place
             # in the locally observed history. Enforce continuity against the
             # last persisted manifest whenever this client has one.
             if Path(inner_path) == Path("content.json"):
                 previous = self.contents.get("content.json")
+                if content_version == 3 and previous and int(previous.get("content_version", 1)) != 3:
+                    raise VerifyError(
+                        "V2-to-v3 transition requires an explicit authenticated VersionTransition"
+                    )
                 try:
                     self.site.settings["freshness_status"] = CryptEthereum.verify_update_chain(
                         previous, content
                     )
                 except (TypeError, ValueError, KeyError) as err:
                     raise VerifyError("Invalid Ethereum update-chain fields: %s" % err)
-        if content_version == 2:
+
+        if content_version in (2, 3):
             if content.get("hash_algorithm") != "blake3-256":
-                raise VerifyError("Unsupported v2 content hash algorithm")
+                raise VerifyError("Unsupported v%s content hash algorithm" % content_version)
+            if content_version == 3:
+                if Path(inner_path) != Path("content.json"):
+                    raise VerifyError("V3 included/user manifests are not enabled yet")
+                if content.get("includes"):
+                    raise VerifyError("V3 includes are not enabled in this transport slice")
+                self.validateIrohProviders(content)
             for file_info in content.get("files", {}).values():
-                if "blake3" not in file_info or "sha512" in file_info:
-                    raise VerifyError("Every required v2 file must use a BLAKE3-256 digest")
+                digest = file_info.get("blake3")
+                if (
+                    not isinstance(digest, str)
+                    or len(digest) != 64
+                    or any(char not in "0123456789abcdefABCDEF" for char in digest)
+                    or "sha512" in file_info
+                ):
+                    raise VerifyError("Every required v%s file must use a BLAKE3-256 digest" % content_version)
             for file_info in content.get("files_optional", {}).values():
-                if "blake3" not in file_info and file_info.get("hash_algorithm") != "sha512-truncated-256":
+                if content_version == 3:
+                    digest = file_info.get("blake3")
+                    if (
+                        not isinstance(digest, str)
+                        or len(digest) != 64
+                        or any(char not in "0123456789abcdefABCDEF" for char in digest)
+                        or "sha512" in file_info
+                    ):
+                        raise VerifyError("Every optional v3 file must use a BLAKE3-256 digest")
+                elif "blake3" not in file_info and file_info.get("hash_algorithm") != "sha512-truncated-256":
                     raise VerifyError("Unsupported optional-file hash in v2 manifest")
         elif content_version != 1:
             raise VerifyError("Unsupported content version: %s" % content_version)
@@ -1063,6 +1123,38 @@ class ContentManager:
                 return True
             else:
                 raise VerifyError("Content verify error")
+
+    def validateIrohProviders(self, content):
+        """Validate signed v3 provider hints before passing them to Rust."""
+        iroh = content.get("iroh")
+        if not isinstance(iroh, dict):
+            raise VerifyError("V3 manifest must contain an iroh provider record")
+        providers = iroh.get("providers")
+        if not isinstance(providers, list) or not providers or len(providers) > 16:
+            raise VerifyError("V3 manifest must list between 1 and 16 Iroh providers")
+
+        for provider in providers:
+            if not isinstance(provider, dict):
+                raise VerifyError("Invalid Iroh provider record")
+            node_id = provider.get("node_id")
+            if not isinstance(node_id, str) or not node_id or len(node_id) > 128:
+                raise VerifyError("Invalid Iroh provider node_id")
+            relay_url = provider.get("relay_url")
+            if relay_url is not None and (
+                not isinstance(relay_url, str)
+                or len(relay_url) > 2048
+                or not relay_url.startswith(("https://", "http://"))
+            ):
+                raise VerifyError("Invalid Iroh provider relay_url")
+            addresses = provider.get("direct_addresses", [])
+            if (
+                not isinstance(addresses, list)
+                or len(addresses) > 32
+                or any(not isinstance(address, str) or len(address) > 128 for address in addresses)
+            ):
+                raise VerifyError("Invalid Iroh provider direct_addresses")
+
+        return providers
 
     def verifyContentInclude(self, inner_path, content, content_size, content_size_optional):
         # Load include details
@@ -1151,16 +1243,23 @@ class ContentManager:
                     )
 
                 content_version = int(new_content.get("content_version", 1))
-                if content_version not in (1, 2):
+                if content_version not in (1, 2, 3):
                     raise VerifyError("Unsupported content version: %s" % content_version)
 
-                if content_version == 2:
+                if content_version in (2, 3):
+                    expected_signature_scheme = (
+                        CryptEthereum.SIGNATURE_SCHEME
+                        if content_version == 2
+                        else CryptEthereum.V3_SIGNATURE_SCHEME
+                    )
                     if new_content.get("hash_algorithm") != "blake3-256":
-                        raise VerifyError("Unsupported v2 content hash algorithm")
+                        raise VerifyError("Unsupported v%s content hash algorithm" % content_version)
                     if new_content.get("identity_scheme") != CryptEthereum.IDENTITY_SCHEME:
-                        raise VerifyError("Unsupported v2 identity scheme")
-                    if new_content.get("signature_scheme") != CryptEthereum.SIGNATURE_SCHEME:
-                        raise VerifyError("Unsupported v2 signature scheme")
+                        raise VerifyError("Unsupported v%s identity scheme" % content_version)
+                    if new_content.get("signature_scheme") != expected_signature_scheme:
+                        raise VerifyError("Unsupported v%s signature scheme" % content_version)
+                    if content_version == 3 and inner_path != "content.json":
+                        raise VerifyError("V3 included/user manifests are not enabled yet")
                     valid_signers = self.getValidSigners(inner_path, new_content)
                     if len(valid_signers) != 1:
                         raise VerifyError("Ethereum v2 currently requires exactly one EOA signer")
@@ -1183,7 +1282,7 @@ class ContentManager:
                     verified = self.verifyContent(inner_path, new_content)
                     if inner_path == "content.json":
                         self.site.settings["content_verification_status"] = "verified"
-                        self.site.settings["content_version"] = 2
+                        self.site.settings["content_version"] = content_version
                     return verified
 
                 if signs:  # Legacy Bitcoin signing

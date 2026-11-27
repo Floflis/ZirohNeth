@@ -1,0 +1,38 @@
+name: Content v3 Iroh transport
+
+on:
+  pull_request:
+    paths:
+      - "src/Crypt/CryptEthereum.py"
+      - "src/Content/**"
+      - "src/Site/**"
+      - "src/File/FileRequest.py"
+      - "src/Iroh/**"
+      - "src/Test/TestCryptEthereum.py"
+      - "src/Test/TestContent.py"
+      - "src/Test/TestSite.py"
+      - "src/Test/TestFileRequest.py"
+      - ".github/workflows/content-v3-iroh.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install project and test dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt pytest mock
+      - name: Run v3, crypto, site-routing and file-serving tests
+        run: |
+          python -m pytest -q \
+            src/Test/TestCryptEthereum.py \
+            src/Test/TestContent.py \
+            src/Test/TestSite.py \
+            src/Test/TestFileRequest.py
