@@ -132,11 +132,11 @@ class TestContent:
         assert len(site.content_manager.hashfield) == len(content_optional["files_optional"])  # Hashed optional files should be added to hashfield
         assert len(content_nooptional["files"]) > len(content_optional["files"])
 
-    def testV3RootManifestRequiresValidIrohProviderAndSignature(self, site):
+    def testV3RootManifestRequiresValidIrohProviderAndSignature(self, site, monkeypatch):
         from eth_account import Account
 
         account = Account.create()
-        site.address = account.address
+        monkeypatch.setattr(site, "address", account.address)
         site.content_manager.contents.pop("content.json", None)
 
         manifest = {

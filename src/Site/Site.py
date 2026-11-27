@@ -854,6 +854,9 @@ class Site(object):
             digest = CryptHash.blake3sum(local_manifest)
         temp_fd, temp_path = tempfile.mkstemp(prefix="iroh-manifest-", dir=str(config.data_dir))
         os.close(temp_fd)
+        # Iroh export writes a new destination file; do not hand it mkstemp's
+        # already-existing empty file.
+        os.unlink(temp_path)
         try:
             bridge = self.getIrohBridge()
             for provider in providers:
@@ -955,6 +958,8 @@ class Site(object):
         """Try only the signed Iroh providers and verify bytes before promotion."""
         temp_fd, temp_path = tempfile.mkstemp(prefix="iroh-file-", dir=str(config.data_dir))
         os.close(temp_fd)
+        # Iroh export requires a path that does not exist yet.
+        os.unlink(temp_path)
         try:
             bridge = self.getIrohBridge()
             last_error = None
@@ -1045,6 +1050,16 @@ class Site(object):
                 file_info = self.needFileInfo(inner_path)
                 if not file_info:
                     return False
+
+                # The root manifest may have been fetched just above during
+                # this same needFile() call. Re-check the transport before
+                # queuing any worker task so the first v3 file cannot leak
+                # through the legacy ZeroNet peer path.
+                if self.isIrohSite():
+                    return self.needIrohFile(
+                        inner_path, update=update, blocking=blocking, priority=priority
+                    )
+
                 if "cert_signers" in file_info and not file_info["content_inner_path"] in self.content_manager.contents:
                     self.log.debug("Missing content.json for requested user file: %s" % inner_path)
                     if self.bad_files.get(file_info["content_inner_path"], 0) > 5:
