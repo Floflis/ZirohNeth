@@ -5,6 +5,7 @@ import re
 import time
 import random
 import sys
+import tempfile
 import hashlib
 import collections
 import base64
@@ -12,6 +13,8 @@ from pathlib import Path
 
 import gevent
 import gevent.pool
+from gevent.event import AsyncResult
+from gevent.lock import Semaphore
 
 import util
 from Config import config
@@ -54,6 +57,10 @@ class Site(object):
         self.peer_blacklist = SiteManager.peer_blacklist  # Ignore this peers (eg. myself)
         self.greenlet_manager = GreenletManager.GreenletManager()  # Running greenlets
         self.worker_manager = WorkerManager(self)  # Handle site download from other peers
+        # V3 file transfers are tracked separately and never enter the legacy
+        # Peer/WorkerManager queue.
+        self.iroh_tasks = {}
+        self.iroh_tasks_lock = Semaphore(1)
         self.bad_files = {}  # SHA check failed files, need to redownload {"inner.content": 1} (key: file, value: failed accept)
         self.content_updated = None  # Content.js update time
         self.notifications = []  # Pending notifications displayed once on page load [error|ok|info, message, timeout]
@@ -208,6 +215,11 @@ class Site(object):
 
         if inner_path == "content.json":
             self.saveSettings()
+
+        if inner_path == "content.json" and self.isIrohSite():
+            # Bootstrap and signature verification still happen over ZeroNet.
+            # Then fetch the exact same manifest blob from its signed Iroh providers.
+            self.verifyIrohManifest()
 
         if peer:  # Update last received update from peer to prevent re-sending the same update to it
             peer.last_content_json_update = self.content_manager.contents[inner_path]["modified"]
@@ -814,6 +826,180 @@ class Site(object):
         else:
             return True
 
+    def isIrohSite(self):
+        """Return true only after a verified root manifest selected content v3."""
+        root = self.content_manager.contents.get("content.json") or {}
+        return int(root.get("content_version", 1)) == 3
+
+    def getIrohProviders(self):
+        root = self.content_manager.contents.get("content.json") or {}
+        return (root.get("iroh") or {}).get("providers") or []
+
+    def getIrohBridge(self):
+        from Iroh.IrohBridgeManager import IrohBridgeManager
+        return IrohBridgeManager.instance()
+
+    def verifyIrohManifest(self):
+        """Verify that the ZeroNet-bootstrap manifest is also available via Iroh."""
+        if not self.isIrohSite():
+            return False
+
+        local_path = self.storage.getPath("content.json")
+        providers = self.getIrohProviders()
+        if not providers or not os.path.isfile(local_path):
+            self.settings["iroh_manifest_status"] = "unavailable"
+            return False
+
+        with self.storage.open("content.json", "rb") as local_manifest:
+            digest = CryptHash.blake3sum(local_manifest)
+        temp_fd, temp_path = tempfile.mkstemp(prefix="iroh-manifest-", dir=str(config.data_dir))
+        os.close(temp_fd)
+        try:
+            bridge = self.getIrohBridge()
+            for provider in providers:
+                try:
+                    result = bridge.fetch_file(provider, digest, temp_path)
+                    if result.get("hash", "").lower() != digest.lower():
+                        raise VerifyError("Iroh returned a different manifest hash")
+                    with open(temp_path, "rb") as downloaded:
+                        if CryptHash.blake3sum(downloaded).lower() != digest.lower():
+                            raise VerifyError("Iroh manifest BLAKE3 mismatch")
+                    self.settings["iroh_manifest_status"] = "verified"
+                    # Keep a local verified replica available to this endpoint.
+                    try:
+                        bridge.add_file(local_path)
+                    except Exception as err:
+                        self.log.warning("Unable to seed local Iroh manifest replica: %s", err)
+                    self.log.debug("V3 content.json verified through Iroh")
+                    return True
+                except Exception as err:
+                    self.log.debug("Iroh manifest provider failed: %s", err)
+            self.settings["iroh_manifest_status"] = "unavailable"
+            return False
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+    def seedIrohContent(self, content=None):
+        """Publish verified v3 files and content.json into the local Iroh blob store."""
+        content = content or self.content_manager.contents.get("content.json") or {}
+        if int(content.get("content_version", 1)) != 3:
+            return False
+
+        bridge = self.getIrohBridge()
+        for relative_path, file_info in content.get("files", {}).items():
+            inner_path = str(relative_path)
+            full_path = self.storage.getPath(inner_path)
+            if not os.path.isfile(full_path):
+                raise IOError("Required v3 file is missing: %s" % inner_path)
+            added = bridge.add_file(full_path)
+            if added.get("hash", "").lower() != file_info.get("blake3", "").lower():
+                raise VerifyError("Local file changed while seeding Iroh: %s" % inner_path)
+
+        for relative_path, file_info in content.get("files_optional", {}).items():
+            inner_path = str(relative_path)
+            full_path = self.storage.getPath(inner_path)
+            if not os.path.isfile(full_path):
+                continue
+            added = bridge.add_file(full_path)
+            if added.get("hash", "").lower() != file_info.get("blake3", "").lower():
+                raise VerifyError("Local optional v3 file changed while seeding Iroh: %s" % inner_path)
+
+        # The root manifest itself is also stored as an Iroh blob. Its digest
+        # is computed after the signed JSON has been written, avoiding self-reference.
+        root_path = self.storage.getPath("content.json")
+        if os.path.isfile(root_path):
+            bridge.add_file(root_path)
+        self.settings["iroh_seeding_status"] = "ready"
+        return True
+
+    def needIrohFile(self, inner_path, update=False, blocking=True, priority=0):
+        """Queue a v3 download directly through Iroh, never through ZeroNet peers."""
+        legacy_task = self.worker_manager.tasks.findTask(inner_path)
+        if legacy_task:
+            self.worker_manager.failTask(
+                legacy_task,
+                reason="Legacy ZeroNet task cancelled for content-v3 file"
+            )
+        if self.storage.isFile(inner_path) and not update:
+            return True
+        if not self.isServing():
+            return False
+
+        file_info = self.needFileInfo(inner_path)
+        if not file_info or not file_info.get("blake3"):
+            self.log.warning("V3 file has no BLAKE3 entry: %s", inner_path)
+            return False
+        if not self.isFileDownloadAllowed(inner_path, file_info):
+            self.log.warning("V3 file download is not allowed by size policy: %s", inner_path)
+            return False
+        if not self.getIrohProviders():
+            self.log.warning("V3 manifest has no Iroh providers: %s", inner_path)
+            return False
+
+        with self.iroh_tasks_lock:
+            task = self.iroh_tasks.get(inner_path)
+            if task is None:
+                self.bad_files[inner_path] = self.bad_files.get(inner_path, 0) + 1
+                self.onFileStart(inner_path)
+                task = self.greenlet_manager.spawn(self.downloadIrohFile, inner_path, file_info)
+                self.iroh_tasks[inner_path] = task
+
+        if blocking:
+            return task.get()
+        return task
+
+    def downloadIrohFile(self, inner_path, file_info):
+        """Try only the signed Iroh providers and verify bytes before promotion."""
+        temp_fd, temp_path = tempfile.mkstemp(prefix="iroh-file-", dir=str(config.data_dir))
+        os.close(temp_fd)
+        try:
+            bridge = self.getIrohBridge()
+            last_error = None
+            for provider in self.getIrohProviders():
+                try:
+                    result = bridge.fetch_file(provider, file_info["blake3"], temp_path)
+                    if result.get("hash", "").lower() != file_info["blake3"].lower():
+                        raise VerifyError("Iroh bridge returned a different BLAKE3 hash")
+
+                    with open(temp_path, "rb") as downloaded:
+                        self.content_manager.verifyFile(inner_path, downloaded, ignore_same=False)
+                        downloaded.seek(0)
+                        self.storage.write(inner_path, downloaded)
+
+                    self.bad_files.pop(inner_path, None)
+                    if file_info.get("optional"):
+                        hash_id = self.content_manager.hashfield.getHashId(file_info["blake3"], "blake3")
+                        self.content_manager.optionalDownloaded(inner_path, hash_id, file_info.get("size", 0))
+
+                    # Replicate verified bytes into the local Iroh store. Failure
+                    # to seed a replica does not invalidate an already verified download.
+                    try:
+                        bridge.add_file(self.storage.getPath(inner_path))
+                    except Exception as err:
+                        self.log.warning("Unable to seed local Iroh file replica %s: %s", inner_path, err)
+
+                    self.onFileDone(inner_path)
+                    self.log.info("Downloaded v3 file through Iroh: %s", inner_path)
+                    return True
+                except Exception as err:
+                    last_error = err
+                    self.log.warning("Iroh provider failed for %s: %s", inner_path, err)
+
+            self.log.error("V3 Iroh download failed for %s: %s", inner_path, last_error)
+            self.bad_files[inner_path] = self.bad_files.get(inner_path, 1) + 1
+            self.onFileFail(inner_path)
+            return False
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            with self.iroh_tasks_lock:
+                self.iroh_tasks.pop(inner_path, None)
+
     def needFileInfo(self, inner_path):
         file_info = self.content_manager.getFileInfo(inner_path)
         if not file_info:
@@ -827,6 +1013,11 @@ class Site(object):
 
     # Check and download if file not exist
     def needFile(self, inner_path, update=False, blocking=True, peer=None, priority=0):
+        # Every non-manifest file in a verified v3 site is transported solely
+        # through Iroh. content.json itself intentionally keeps ZeroNet bootstrap.
+        if not inner_path.endswith("content.json") and self.isIrohSite():
+            return self.needIrohFile(inner_path, update=update, blocking=blocking, priority=priority)
+
         if self.worker_manager.tasks.findTask(inner_path):
             task = self.worker_manager.addTask(inner_path, peer, priority=priority)
             if blocking:

@@ -14,6 +14,7 @@ from eth_utils import is_address, is_checksum_address, to_checksum_address
 
 IDENTITY_SCHEME = "ethereum-eoa-secp256k1"
 SIGNATURE_SCHEME = "ethereum-eip712-v1"
+V3_SIGNATURE_SCHEME = "ethereum-eip712-v3"
 CONTENT_VERSION = 2
 ZERO_DIGEST = "0x" + ("00" * 32)
 
@@ -23,6 +24,23 @@ _TYPED_DATA_TYPES = {
         {"name": "version", "type": "string"},
     ],
     "SiteUpdate": [
+        {"name": "siteAddress", "type": "address"},
+        {"name": "contentDigest", "type": "bytes32"},
+        {"name": "contentVersion", "type": "uint32"},
+        {"name": "sequence", "type": "uint64"},
+        {"name": "previousUpdateDigest", "type": "bytes32"},
+    ],
+}
+
+# V3 uses a distinct EIP-712 primary type and domain version. This prevents
+# signatures from being replayed between the legacy v2 and native-Iroh v3
+# content profiles while keeping the v2 encoding byte-for-byte unchanged.
+_TYPED_DATA_TYPES_V3 = {
+    "EIP712Domain": [
+        {"name": "name", "type": "string"},
+        {"name": "version", "type": "string"},
+    ],
+    "SiteUpdateV3": [
         {"name": "siteAddress", "type": "address"},
         {"name": "contentDigest", "type": "bytes32"},
         {"name": "contentVersion", "type": "uint32"},
@@ -112,14 +130,26 @@ def _typed_message(content):
     if len(previous) != 32:
         raise ValueError("previous_update_digest must be 32 bytes")
 
+    content_version = int(content.get("content_version", 2))
+    if content_version == 2:
+        types = _TYPED_DATA_TYPES
+        primary_type = "SiteUpdate"
+        domain_version = "1"
+    elif content_version == 3:
+        types = _TYPED_DATA_TYPES_V3
+        primary_type = "SiteUpdateV3"
+        domain_version = "3"
+    else:
+        raise ValueError("Unsupported Ethereum content version: %s" % content_version)
+
     return {
-        "types": _TYPED_DATA_TYPES,
-        "primaryType": "SiteUpdate",
-        "domain": {"name": "ZirohNeth", "version": "1"},
+        "types": types,
+        "primaryType": primary_type,
+        "domain": {"name": "ZirohNeth", "version": domain_version},
         "message": {
             "siteAddress": address,
             "contentDigest": manifest_digest(content),
-            "contentVersion": int(content["content_version"]),
+            "contentVersion": content_version,
             "sequence": int(content["sequence"]),
             "previousUpdateDigest": previous,
         },
@@ -127,7 +157,11 @@ def _typed_message(content):
 
 
 def sign_manifest(content, private_key):
-    """Sign a v2 manifest using EIP-712 and return a 0x-prefixed signature."""
+    """Sign a versioned Ethereum manifest using its EIP-712 profile."""
+    content_version = int(content.get("content_version", 2))
+    expected_scheme = SIGNATURE_SCHEME if content_version == 2 else V3_SIGNATURE_SCHEME
+    if content.get("signature_scheme") != expected_scheme:
+        raise ValueError("Signature scheme does not match Ethereum content version")
     key = private_key[4:] if private_key.startswith("eth:") else private_key
     key = key[2:] if key.startswith("0x") else key
     signer = Account.from_key(bytes.fromhex(key)).address
@@ -139,8 +173,12 @@ def sign_manifest(content, private_key):
 
 
 def verify_manifest(content, signature, expected_address):
-    """Verify a v2 manifest and ensure the recovered signer is expected."""
+    """Verify a versioned Ethereum manifest and ensure its signer is expected."""
     try:
+        content_version = int(content.get("content_version", 2))
+        expected_scheme = SIGNATURE_SCHEME if content_version == 2 else V3_SIGNATURE_SCHEME
+        if content.get("signature_scheme") != expected_scheme:
+            return False
         typed_data = encode_typed_data(full_message=_typed_message(content))
         recovered = Account.recover_message(typed_data, signature=signature)
         return normalize_address(recovered) == normalize_address(expected_address)
