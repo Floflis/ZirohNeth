@@ -1041,6 +1041,8 @@ class ContentManager:
             if content_version == 3:
                 if Path(inner_path) != Path("content.json"):
                     raise VerifyError("V3 included/user manifests are not enabled yet")
+                if content.get("includes"):
+                    raise VerifyError("V3 includes are not enabled in this transport slice")
                 self.validateIrohProviders(content)
             for file_info in content.get("files", {}).values():
                 digest = file_info.get("blake3")

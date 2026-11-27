@@ -213,6 +213,14 @@ class FileRequest(object):
             self.response({"error": "Unknown site"})
             self.connection.badAction(5)
             return False
+
+        # V3 manifests remain available through ZeroNet for bootstrap, but
+        # regular site files must be served by the native Iroh blob protocol.
+        root_content = site.content_manager.contents.get("content.json") or {}
+        if int(root_content.get("content_version", 1)) == 3 and params.get("inner_path") != "content.json":
+            self.response({"error": "Content v3 files are served exclusively through Iroh"})
+            return False
+
         try:
             file_path = site.storage.getPath(params["inner_path"])
             if streaming:

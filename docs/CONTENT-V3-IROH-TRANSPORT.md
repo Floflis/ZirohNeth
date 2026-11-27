@@ -9,14 +9,16 @@ v1/v2 behavior.
   peer/file-transfer pipeline.
 - A v3 root content.json is bootstrapped and signature-verified through
   ZeroNet. The exact manifest bytes are then fetched by BLAKE3 hash from its
-  signed Iroh provider list as an additional serving path.
+  signed Iroh provider list as an additional serving path. The ZeroNet file
+  server refuses ordinary v3 file requests but continues serving content.json.
 - After the v3 root manifest is verified, all non-content.json required and
   optional files are fetched only through Iroh. The legacy Worker/Peer path is
   never used for those files.
 - An Iroh error is a download failure. There is no ZeroNet fallback.
 - V3 included/user manifests and v2-to-v3 conversion are not enabled in this
   slice. A local v2 head cannot be replaced by v3 without a separately
-  authenticated VersionTransition.
+  authenticated VersionTransition. V3 root manifests with includes are also
+  rejected until the included-manifest transport and authorization model is ready.
 
 ## V3 provider metadata
 
