@@ -679,6 +679,10 @@ $.extend( $.easing,
       } else if (mode === "v3") {
         screen.find(".v3-protocol").text(reason === "ethereum-bootstrap" ?
           "0x IDENTITY / DISCOVERING FORMAT" : "CONTENT V3 / IROH NETWORK");
+        screen.find(".v3-progress")
+          .attr("aria-label", "Network synchronization activity")
+          .removeAttr("aria-valuenow");
+        screen.find(".v3-percent").text("SYNCING");
       }
       return mode;
     };
@@ -733,9 +737,9 @@ $.extend( $.easing,
         $(".progressbar").css({
           "transform": "scaleX(" + progress + ")"
         }).css("opacity", "1").css("display", "block");
-        $(".v2-progress-fill, .v3-progress-fill").css("transform", "scaleX(" + progress + ")");
-        $(".v2-percent, .v3-percent").text(Math.round(progress * 100) + "%");
-        $(".v2-progress, .v3-progress").attr("aria-valuenow", Math.round(progress * 100));
+        $(".v2-progress-fill").css("transform", "scaleX(" + progress + ")");
+        $(".v2-percent").text(Math.round(progress * 100) + "%");
+        $(".v2-progress").attr("aria-valuenow", Math.round(progress * 100));
       });
     };
 
