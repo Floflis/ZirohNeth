@@ -62,13 +62,99 @@ else if (window.opener && window.opener.location.toString()) {
  </div>
 </div>
 
-<!-- Loadingscreen -->
-<div class='loadingscreen'>
+<!-- Loadingscreen: the original ZeroNet v1 experience remains unchanged. -->
+<div class='loadingscreen experience-v1'>
  <a href="/Config" class="loading-config">Config</a>
- <div class='loading-text console'>
- </div>
+
+ <div class='loading-text console'></div>
  <div class="flipper-container">
-  <div class="flipper"> <div class="front"></div><div class="back"></div> </div>
+  <div class="flipper"><div class="front"></div><div class="back"></div></div>
+ </div>
+
+ <!-- Content v2: a new design that keeps the warmth and playfulness of ZeroNet. -->
+ <div class="loading-experience loading-v2" aria-hidden="true">
+  <div class="v2-paper-grain" aria-hidden="true"></div>
+  <div class="v2-panel">
+   <div class="v2-brand">
+    <span class="v2-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="v2-brand-name">ZIROH NETH<small>PEER-TO-PEER WEB</small></span>
+    <span class="v2-protocol">CONTENT V2 / SIGNED MANIFEST</span>
+   </div>
+
+   <div class="v2-illustration" aria-hidden="true">
+    <div class="v2-orbit v2-orbit-a"><i></i></div>
+    <div class="v2-orbit v2-orbit-b"><i></i></div>
+    <div class="v2-tile v2-tile-back"></div>
+    <div class="v2-tile v2-tile-middle"></div>
+    <div class="v2-tile v2-tile-front"><span>z</span></div>
+    <div class="v2-spark v2-spark-a"></div>
+    <div class="v2-spark v2-spark-b"></div>
+    <div class="v2-spark v2-spark-c"></div>
+   </div>
+
+   <div class="v2-copy">
+    <p class="v2-eyebrow">A NEW KIND OF CONTENT</p>
+    <h1>A little world is unfolding.</h1>
+    <p class="v2-description">Gathering the pieces of this place, one peer at a time.</p>
+    <div class="v2-status" role="status" aria-live="polite">Connecting to peers</div>
+    <div class="v2-progress" role="progressbar" aria-label="Synchronization progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+     <span class="v2-progress-fill"></span>
+    </div>
+    <div class="v2-progress-meta"><span>SYNC QUEUE</span><span class="v2-percent">0%</span></div>
+   </div>
+
+   <div class="v2-footer">
+    <span class="v2-site-title">CONTENT NETWORK</span>
+    <span>FIND · VERIFY · OPEN</span>
+   </div>
+  </div>
+ </div>
+
+ <!-- Content v3: a deliberate visual break built around a living peer network. -->
+ <div class="loading-experience loading-v3" aria-hidden="true">
+  <div class="v3-grid" aria-hidden="true"></div>
+  <div class="v3-nebula v3-nebula-a" aria-hidden="true"></div>
+  <div class="v3-nebula v3-nebula-b" aria-hidden="true"></div>
+
+  <div class="v3-network" aria-hidden="true">
+   <i class="v3-link v3-link-a"></i>
+   <i class="v3-link v3-link-b"></i>
+   <i class="v3-link v3-link-c"></i>
+   <i class="v3-link v3-link-d"></i>
+   <i class="v3-node v3-node-a"></i>
+   <i class="v3-node v3-node-b"></i>
+   <i class="v3-node v3-node-c"></i>
+   <i class="v3-node v3-node-d"></i>
+   <i class="v3-node v3-node-e"></i>
+   <i class="v3-node v3-node-f"></i>
+   <div class="v3-orbit v3-orbit-a"></div>
+   <div class="v3-orbit v3-orbit-b"></div>
+   <div class="v3-core"><span>z</span></div>
+  </div>
+
+  <div class="v3-interface">
+   <div class="v3-brand">
+    <span class="v3-brand-symbol" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span>ZIROH<span class="v3-brand-light">NETH</span></span>
+    <span class="v3-protocol">CONTENT V3 / IROH NETWORK</span>
+   </div>
+
+   <div class="v3-copy">
+    <p class="v3-eyebrow">A NETWORK WITHOUT A CENTER</p>
+    <h1>Content in motion.</h1>
+    <p class="v3-description">Finding the routes. Verifying the source. Rebuilding the place.</p>
+    <div class="v3-status" role="status" aria-live="polite">Connecting to peers</div>
+    <div class="v3-progress" role="progressbar" aria-label="Synchronization progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+     <span class="v3-progress-fill"></span>
+    </div>
+    <div class="v3-progress-meta"><span>NETWORK SYNCHRONIZATION</span><span class="v3-percent">0%</span></div>
+   </div>
+
+   <div class="v3-footer">
+    <span class="v3-site-title">DISTRIBUTED CONTENT</span>
+    <span>NO CENTER · MANY PATHS</span>
+   </div>
+  </div>
  </div>
 </div>
 
