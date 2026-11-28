@@ -646,7 +646,8 @@ $.extend( $.easing,
       var initialExperience = initialVersion === 3 ? "v3" :
         (initialVersion === 2 || this.isEthereumSite ? "v2" : "v1");
       var initialReason = initialVersion === 3 ? "content-v3" :
-        (initialExperience === "v2" ? "ethereum-bootstrap" : "legacy");
+        (initialVersion === 2 ? "content-v2" :
+          (initialExperience === "v2" ? "ethereum-bootstrap" : "legacy"));
       this.experience = null;
       this.experienceReason = null;
       this.setExperience(initialExperience, initialReason);
@@ -705,6 +706,8 @@ $.extend( $.easing,
         if (version === 3) {
           this.setExperience("v3", "content-v3");
           $(".v3-protocol").text("CONTENT V3 / IROH NETWORK");
+        } else if (version === 2) {
+          this.setExperience("v2", "content-v2");
         } else if (this.experience !== "v2") {
           this.setExperience("v2", "ethereum-bootstrap");
         }
