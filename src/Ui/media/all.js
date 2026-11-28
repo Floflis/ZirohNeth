@@ -642,9 +642,14 @@ $.extend( $.easing,
       // Ethereum-style 0x sites start with the fresh v2 design immediately.
       // The signed manifest can promote that screen to the v3 experience later.
       this.isEthereumSite = /^0x/i.test(window.address || "");
+      var initialVersion = parseInt(window.content_version, 10);
+      var initialExperience = initialVersion === 3 ? "v3" :
+        (initialVersion === 2 || this.isEthereumSite ? "v2" : "v1");
+      var initialReason = initialVersion === 3 ? "content-v3" :
+        (initialExperience === "v2" ? "ethereum-bootstrap" : "legacy");
       this.experience = null;
       this.experienceReason = null;
-      this.setExperience(this.isEthereumSite ? "v2" : "v1", this.isEthereumSite ? "ethereum-bootstrap" : "legacy");
+      this.setExperience(initialExperience, initialReason);
       if (window.show_loadingscreen) {
         this.showScreen();
       }
@@ -682,7 +687,7 @@ $.extend( $.easing,
       var clean = String(message == null ? "" : message)
         .replace(/<[^>]*>/g, " ")
         .replace(/&nbsp;/g, " ")
-        .replace(/\\s+/g, " ")
+        .replace(/\s+/g, " ")
         .trim();
       if (!clean) {
         return false;
