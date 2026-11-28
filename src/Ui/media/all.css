@@ -848,4 +848,8 @@ a { color: black }
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
   }
+  .loadingscreen.experience-v3 .v3-progress-fill {
+    animation: none !important;
+    transform: translateX(0) !important;
+  }
 }
