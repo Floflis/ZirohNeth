@@ -687,9 +687,13 @@ a { color: black }
 }
 .v3-progress { background: rgba(151,179,216,.15); }
 .v3-progress-fill {
+  width: 36%;
   border-radius: inherit;
   background: linear-gradient(90deg,#42d9cf,#53a9e9,#a58cff);
   box-shadow: 0 0 16px rgba(77,202,220,.35);
+  transform: translateX(-120%);
+  transform-origin: center;
+  animation: v3-progress-sweep 1.9s cubic-bezier(.65,.05,.36,1) infinite;
 }
 .v3-progress-meta { color: #667d9d; }
 .v3-footer {
@@ -809,6 +813,7 @@ a { color: black }
 @keyframes v3-core-pulse { 0%,100% { box-shadow: 0 0 35px rgba(55,201,210,.18),inset 0 0 25px rgba(93,195,221,.1); } 50% { box-shadow: 0 0 65px rgba(55,201,210,.38),inset 0 0 34px rgba(93,195,221,.2); } }
 @keyframes v3-data-packet { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 86% { opacity: 1; } 100% { left: calc(100% - 5px); opacity: 0; } }
 @keyframes v3-node-pulse { 0%,100% { opacity: .55; transform: scale(.82); } 50% { opacity: 1; transform: scale(1.18); } }
+@keyframes v3-progress-sweep { 0% { transform: translateX(-120%); } 50% { transform: translateX(90%); } 100% { transform: translateX(300%); } }
 @keyframes v3-nebula-drift { from { transform: translate3d(-3%,2%,0) scale(.9); } to { transform: translate3d(5%,-4%,0) scale(1.12); } }
 
 /* Small screens keep both compositions legible without flattening their identity. */
