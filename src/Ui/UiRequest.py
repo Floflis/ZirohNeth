@@ -591,6 +591,7 @@ class UiRequest:
         body_style = ""
         meta_tags = ""
         postmessage_nonce_security = "false"
+        content_version = 0
 
         wrapper_nonce = self.getWrapperNonce()
         inner_query_string = self.processQueryString(site, self.env.get("QUERY_STRING", ""))
@@ -622,6 +623,7 @@ class UiRequest:
 
         if site.content_manager.contents.get("content.json"):  # Got content.json
             content = site.content_manager.contents["content.json"]
+            content_version = content.get("content_version", 1)
             if content.get("background-color"):
                 background_color = content.get("background-color-%s" % theme, content["background-color"])
                 body_style += "background-color: %s;" % html.escape(background_color)
@@ -680,6 +682,7 @@ class UiRequest:
             postmessage_nonce_security=postmessage_nonce_security,
             permissions=json.dumps(site.settings["permissions"]),
             show_loadingscreen=json.dumps(show_loadingscreen),
+            content_version=json.dumps(content_version),
             sandbox_permissions=sandbox_permissions,
             rev=config.commit,
             lang=config.language,
