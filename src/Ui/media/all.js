@@ -639,6 +639,12 @@ $.extend( $.easing,
   Loading = (function() {
     function Loading(wrapper) {
       this.wrapper = wrapper;
+      // Ethereum-style 0x sites start with the fresh v2 design immediately.
+      // The signed manifest can promote that screen to the v3 experience later.
+      this.isEthereumSite = /^0x/i.test(window.address || "");
+      this.experience = null;
+      this.experienceReason = null;
+      this.setExperience(this.isEthereumSite ? "v2" : "v1", this.isEthereumSite ? "ethereum-bootstrap" : "legacy");
       if (window.show_loadingscreen) {
         this.showScreen();
       }
@@ -646,14 +652,82 @@ $.extend( $.easing,
       this.timer_set = null;
     }
 
+    Loading.prototype.setExperience = function(mode, reason) {
+      if (mode !== "v1" && mode !== "v2" && mode !== "v3") {
+        return this.experience;
+      }
+      if (this.experience === mode && this.experienceReason === reason) {
+        return mode;
+      }
+
+      this.experience = mode;
+      this.experienceReason = reason || "legacy";
+
+      var screen = $(".loadingscreen");
+      screen.removeClass("experience-v1 experience-v2 experience-v3").addClass("experience-" + mode);
+      screen.find(".loading-experience").attr("aria-hidden", "true");
+      screen.find(".loading-" + mode).attr("aria-hidden", "false");
+
+      if (mode === "v2") {
+        screen.find(".v2-protocol").text("CONTENT V2 / SIGNED MANIFEST");
+      } else if (mode === "v3") {
+        screen.find(".v3-protocol").text(reason === "ethereum-bootstrap" ?
+          "0x IDENTITY / DISCOVERING FORMAT" : "CONTENT V3 / IROH NETWORK");
+      }
+      return mode;
+    };
+
+    Loading.prototype.setStatus = function(message) {
+      // Status labels are text-only: never inject server or site data as HTML.
+      var clean = String(message == null ? "" : message)
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\\s+/g, " ")
+        .trim();
+      if (!clean) {
+        return false;
+      }
+      $(".v2-status, .v3-status").text(clean);
+      return clean;
+    };
+
+    Loading.prototype.updateExperience = function(site_info) {
+      var content = site_info && site_info.content ? site_info.content : {};
+      var version = parseInt(content.content_version, 10);
+
+      if (this.isEthereumSite) {
+        // 0x is a bootstrap hint for the new UI, not proof of content v3.
+        if (version === 3) {
+          this.setExperience("v3", "content-v3");
+          $(".v3-protocol").text("CONTENT V3 / IROH NETWORK");
+        } else if (this.experience !== "v2") {
+          this.setExperience("v2", "ethereum-bootstrap");
+        }
+      } else if (version === 3) {
+        this.setExperience("v3", "content-v3");
+        $(".v3-protocol").text("CONTENT V3 / IROH NETWORK");
+      } else if (version === 2) {
+        this.setExperience("v2", "content-v2");
+      }
+
+      if (content.title) {
+        $(".v2-site-title, .v3-site-title").text(content.title);
+      }
+      return this.experience;
+    };
+
     Loading.prototype.setProgress = function(percent) {
       if (this.timer_hide) {
         clearInterval(this.timer_hide);
       }
+      var progress = Math.max(0, Math.min(1, Number(percent) || 0));
       return this.timer_set = RateLimit(500, function() {
-        return $(".progressbar").css({
-          "transform": "scaleX(" + (parseInt(percent * 100) / 100) + ")"
+        $(".progressbar").css({
+          "transform": "scaleX(" + progress + ")"
         }).css("opacity", "1").css("display", "block");
+        $(".v2-progress-fill, .v3-progress-fill").css("transform", "scaleX(" + progress + ")");
+        $(".v2-percent, .v3-percent").text(Math.round(progress * 100) + "%");
+        $(".v2-progress, .v3-progress").attr("aria-valuenow", Math.round(progress * 100));
       });
     };
 
@@ -674,6 +748,7 @@ $.extend( $.easing,
     Loading.prototype.showScreen = function() {
       $(".loadingscreen").css("display", "block").addClassLater("ready");
       this.screen_visible = true;
+      this.setStatus("Connecting to peers");
       return this.printLine("&nbsp;&nbsp;&nbsp;Connecting...");
     };
 
@@ -770,6 +845,7 @@ $.extend( $.easing,
       if (type === "warning") {
         line.addClass("console-warning");
       }
+      this.setStatus(text);
       return line;
     };
 
@@ -1749,6 +1825,7 @@ $.extend( $.easing,
 
     Wrapper.prototype.setSiteInfo = function(site_info) {
       var ref, ref1, ref2, ref3;
+      this.loading.updateExperience(site_info);
       if (site_info.event != null) {
         if (site_info.event[0] === "file_added" && site_info.bad_files) {
           this.loading.printLine(site_info.bad_files + " files needs to be downloaded");
