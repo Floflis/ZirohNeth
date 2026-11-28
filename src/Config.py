@@ -29,7 +29,12 @@ class Config:
         try:
             from . import Build
         except ImportError:
-            from .util import Git
+            # Config can be imported both as src.Config and as the legacy
+            # top-level Config module used by the existing test/runtime paths.
+            try:
+                from .util import Git
+            except ImportError:
+                from util import Git
             self.build_type = 'source'
             self.branch = Git.branch() or 'unknown'
             self.commit = Git.commit() or 'unknown'
